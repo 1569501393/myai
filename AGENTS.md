@@ -24,17 +24,24 @@ cd laravel-ini && php artisan serve
 cd laravel-ini && composer run setup  # install + key:generate + migrate + build
 ```
 
-### Testing
+### Testing (Single Test Priority)
 ```bash
 cd laravel-ini
 
-php artisan test                              # Laravel test runner (recommended)
-./vendor/bin/phpunit                          # PHPUnit
-./vendor/bin/phpunit tests/Unit/ExampleTest.php  # Single file
-./vendor/bin/phpunit --filter testMethod       # Single method
-./vendor/bin/phpunit --group=unit             # By group
-./vendor/bin/phpunit --testsuite=Feature       # Feature tests only
-./vendor/bin/phpunit --coverage-html coverage/ # With coverage
+# Run all tests
+php artisan test
+
+# Run single test FILE
+./vendor/bin/phpunit tests/Unit/ExampleTest.php
+
+# Run single test METHOD (most specific)
+./vendor/bin/phpunit --filter testMethodName
+
+# Run by group
+./vendor/bin/phpunit --group=unit
+
+# With coverage
+./vendor/bin/phpunit --coverage-html coverage/
 ```
 
 ### Code Quality
@@ -49,8 +56,8 @@ php artisan test                              # Laravel test runner (recommended
 
 ### General
 - Follow **PSR-12** standard
-- Use **Laravel Pint** for auto-formatting
-- Keep functions small (single responsibility)
+- Use **Laravel Pint** for auto-formatting (run before commit)
+- Keep functions small (< 50 lines, single responsibility)
 - Clear, descriptive names
 
 ### Naming Conventions
@@ -61,6 +68,7 @@ php artisan test                              # Laravel test runner (recommended
 | Variables | camelCase | `$userName` |
 | Constants | SCREAMING_SNAKE | `MAX_RETRY` |
 | DB tables | snake_case (plural) | `students` |
+| HTTP responses | prefixed `json` | `jsonSuccess()` |
 
 ### File Template
 ```php
@@ -87,8 +95,20 @@ class StudentController extends Controller
 ### Types & Imports
 - Always `declare(strict_types=1);`
 - Return types & parameter hints required
-- Explicit `use` statements, sorted alphabetically
+- Import order (alphabetical within groups):
+  1. PHP built-in
+  2. Composer packages
+  3. Laravel facades
+  4. App classes
 - Prefer specific types over `mixed`
+- Use nullable types: `?string` not `string|null`
+
+### Formatting
+- 4 spaces indentation
+- Max 120 chars/line
+- Blank lines between blocks (namespace, imports, class)
+- Strict comparison (`===` not `==`)
+- Use `->` for single chain, newline for multiple chains
 
 ### Error Handling
 ```php
@@ -101,21 +121,38 @@ public function show(int $id): JsonResponse
         'message' => 'Retrieved successfully',
     ]);
 }
-```
 
-### Formatting
-- 4 spaces indentation
-- Max 120 chars/line
-- Blank lines between blocks
-- Strict comparison (`===`)
+// For potential failures, use try-catch
+try {
+    // operation
+} catch (\Exception $e) {
+    report($e);
+    return response()->json(['success' => false], 500);
+}
+```
 
 ## Laravel Conventions
 
 - **Controllers**: API controllers in `app/Http/Controllers/Api/`, return `JsonResponse`
 - **Routes**: `routes/api.php` for API, `routes/web.php` for web
-- **Models**: Eloquent ORM, define `$fillable`/`$guarded`
-- **Migrations**: Descriptive names (`create_students_table`)
+- **Models**: Eloquent ORM, define `$fillable`/`$guarded`, use `$casts`
+- **Migrations**: Descriptive names, use `up()`/`down()` methods
 - **Form Requests**: Validation in `app/Http/Requests/`
+- **Services**: Business logic in `app/Services/`
+- **Repositories**: Data access in `app/Repositories/`
+
+## Database Query Conventions
+
+```php
+// Always specify columns (no SELECT *)
+Student::select(['id', 'name', 'email'])->get();
+
+// Use eager loading to avoid N+1
+Student::with('courses')->get();
+
+// Use chunking for large datasets
+Model::chunk(100, function ($records) { });
+```
 
 ## Testing
 
@@ -133,12 +170,24 @@ public function test_can_create_student(): void
 ```
 
 - Follow AAA pattern (Arrange, Act, Assert)
-- Mock external deps with Mockery
-- Test JSON API responses
+- Mock external dependencies with Mockery
+- Test JSON API responses structure
+- Use `refresh()` to reload model after modifications
 
 ## Git Conventions
 
-- Clear, descriptive commits
+- Clear, descriptive commit messages
 - Atomic, focused changes
+- Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`
 - Present tense: "Add" not "Added"
 - Run `composer install` after pulling
+
+## Skills
+
+Available skills for common tasks:
+- `pdf` - PDF operations
+- `pptx` - PowerPoint operations
+- `github` - GitHub interactions
+- `summarize` - URL/content summarization
+- `weather` - Weather information
+- `daily-report` - Generate daily work reports
