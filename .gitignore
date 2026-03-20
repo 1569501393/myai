@@ -4,10 +4,7 @@
 /.vscode
 /laravel-ini
 /laravel-ini.bak
-/student-management/backend/vendor
-/student-management/backend/bootstrap/cache
-/student-management/backend/bootstrap/routes
-/student-management/backend/storage
+/student-management
 /.env
 /.env.*
 /.env.backup
