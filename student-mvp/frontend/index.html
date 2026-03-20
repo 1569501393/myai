@@ -1,0 +1,257 @@
+import { createApp } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js'
+
+const API_BASE = 'http://localhost:8888'
+
+const app = createApp({
+  data() {
+    return {
+      students: [],
+      loading: false,
+      showModal: false,
+      modalMode: 'add',
+      search: '',
+      pagination: {
+        page: 1,
+        perPage: 10,
+        total: 0
+      },
+      form: {
+        id: null,
+        student_no: '',
+        name: '',
+        gender: '男',
+        birth_date: '',
+        phone: '',
+        email: '',
+        address: ''
+      },
+      detail: null,
+      showDetail: false
+    }
+  },
+  computed: {
+    totalPages() {
+      return Math.ceil(this.pagination.total / this.pagination.perPage)
+    }
+  },
+  methods: {
+    async fetchStudents() {
+      this.loading = true
+      try {
+        const params = new URLSearchParams({
+          page: this.pagination.page,
+          per_page: this.pagination.perPage,
+          search: this.search
+        })
+        const res = await fetch(`${API_BASE}/students?${params}`)
+        const json = await res.json()
+        if (json.success) {
+          this.students = json.data.data
+          this.pagination.total = json.data.total
+        }
+      } catch (e) {
+        alert('加载失败: ' + e.message)
+      } finally {
+        this.loading = false
+      }
+    },
+    openAdd() {
+      this.modalMode = 'add'
+      this.form = {
+        id: null,
+        student_no: '',
+        name: '',
+        gender: '男',
+        birth_date: '',
+        phone: '',
+        email: '',
+        address: ''
+      }
+      this.showModal = true
+    },
+    openEdit(student) {
+      this.modalMode = 'edit'
+      this.form = { ...student }
+      this.showModal = true
+    },
+    async save() {
+      try {
+        const url = this.modalMode === 'add' 
+          ? `${API_BASE}/students`
+          : `${API_BASE}/students/${this.form.id}`
+        const method = this.modalMode === 'add' ? 'POST' : 'PUT'
+        
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.form)
+        })
+        const json = await res.json()
+        
+        if (json.success) {
+          this.showModal = false
+          this.fetchStudents()
+        } else {
+          alert(json.message)
+        }
+      } catch (e) {
+        alert('保存失败: ' + e.message)
+      }
+    },
+    async deleteStudent(id) {
+      if (!confirm('确定要删除该学生吗？')) return
+      
+      try {
+        const res = await fetch(`${API_BASE}/students/${id}`, { method: 'DELETE' })
+        const json = await res.json()
+        if (json.success) {
+          this.fetchStudents()
+        } else {
+          alert(json.message)
+        }
+      } catch (e) {
+        alert('删除失败: ' + e.message)
+      }
+    },
+    viewDetail(student) {
+      this.detail = student
+      this.showDetail = true
+    },
+    closeDetail() {
+      this.showDetail = false
+    },
+    searchStudents() {
+      this.pagination.page = 1
+      this.fetchStudents()
+    },
+    goPage(page) {
+      if (page >= 1 && page <= this.totalPages) {
+        this.pagination.page = page
+        this.fetchStudents()
+      }
+    }
+  },
+  mounted() {
+    this.fetchStudents()
+  },
+  template: `
+    <div class="container">
+      <div class="header">
+        <h1>学生管理系统 MVP</h1>
+        <button class="btn-primary" @click="openAdd">+ 添加学生</button>
+      </div>
+      
+      <div class="search-bar">
+        <input 
+          v-model="search" 
+          @keyup.enter="searchStudents"
+          placeholder="搜索姓名..." 
+        />
+        <button class="btn-secondary" @click="searchStudents">搜索</button>
+      </div>
+      
+      <div v-if="loading" class="loading">加载中...</div>
+      
+      <table v-else class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>学号</th>
+            <th>姓名</th>
+            <th>性别</th>
+            <th>出生日期</th>
+            <th>电话</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="s in students" :key="s.id">
+            <td>{{ s.id }}</td>
+            <td>{{ s.student_no }}</td>
+            <td>{{ s.name }}</td>
+            <td>{{ s.gender }}</td>
+            <td>{{ s.birth_date || '-' }}</td>
+            <td>{{ s.phone || '-' }}</td>
+            <td class="actions">
+              <button class="btn-text" @click="viewDetail(s)">查看</button>
+              <button class="btn-text" @click="openEdit(s)">编辑</button>
+              <button class="btn-text btn-danger" @click="deleteStudent(s.id)">删除</button>
+            </td>
+          </tr>
+          <tr v-if="students.length === 0">
+            <td colspan="7" class="empty">暂无数据</td>
+          </tr>
+        </tbody>
+      </table>
+      
+      <div class="pagination" v-if="totalPages > 1">
+        <button :disabled="pagination.page === 1" @click="goPage(pagination.page - 1)">上一页</button>
+        <span>{{ pagination.page }} / {{ totalPages }}</span>
+        <button :disabled="pagination.page === totalPages" @click="goPage(pagination.page + 1)">下一页</button>
+      </div>
+      
+      <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
+        <div class="modal">
+          <h2>{{ modalMode === 'add' ? '添加学生' : '编辑学生' }}</h2>
+          <form @submit.prevent="save">
+            <div class="form-group">
+              <label>学号 *</label>
+              <input v-model="form.student_no" required />
+            </div>
+            <div class="form-group">
+              <label>姓名 *</label>
+              <input v-model="form.name" required />
+            </div>
+            <div class="form-group">
+              <label>性别</label>
+              <select v-model="form.gender">
+                <option value="男">男</option>
+                <option value="女">女</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>出生日期</label>
+              <input type="date" v-model="form.birth_date" />
+            </div>
+            <div class="form-group">
+              <label>电话</label>
+              <input v-model="form.phone" />
+            </div>
+            <div class="form-group">
+              <label>邮箱</label>
+              <input type="email" v-model="form.email" />
+            </div>
+            <div class="form-group">
+              <label>地址</label>
+              <input v-model="form.address" />
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn-secondary" @click="showModal = false">取消</button>
+              <button type="submit" class="btn-primary">保存</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      
+      <div v-if="showDetail" class="modal-overlay" @click.self="closeDetail">
+        <div class="modal">
+          <h2>学生详情</h2>
+          <div class="detail-grid">
+            <div class="detail-item"><span class="label">学号:</span> {{ detail.student_no }}</div>
+            <div class="detail-item"><span class="label">姓名:</span> {{ detail.name }}</div>
+            <div class="detail-item"><span class="label">性别:</span> {{ detail.gender }}</div>
+            <div class="detail-item"><span class="label">出生日期:</span> {{ detail.birth_date || '-' }}</div>
+            <div class="detail-item"><span class="label">电话:</span> {{ detail.phone || '-' }}</div>
+            <div class="detail-item"><span class="label">邮箱:</span> {{ detail.email || '-' }}</div>
+            <div class="detail-item"><span class="label">地址:</span> {{ detail.address || '-' }}</div>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" @click="closeDetail">关闭</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `
+})
+
+app.mount('#app')

@@ -68,7 +68,6 @@ php artisan test
 | Variables | camelCase | `$userName` |
 | Constants | SCREAMING_SNAKE | `MAX_RETRY` |
 | DB tables | snake_case (plural) | `students` |
-| HTTP responses | prefixed `json` | `jsonSuccess()` |
 
 ### File Template
 ```php
@@ -95,20 +94,14 @@ class StudentController extends Controller
 ### Types & Imports
 - Always `declare(strict_types=1);`
 - Return types & parameter hints required
-- Import order (alphabetical within groups):
-  1. PHP built-in
-  2. Composer packages
-  3. Laravel facades
-  4. App classes
+- Import order (alphabetical): PHP built-in → Composer → Laravel facades → App classes
 - Prefer specific types over `mixed`
 - Use nullable types: `?string` not `string|null`
 
 ### Formatting
-- 4 spaces indentation
-- Max 120 chars/line
-- Blank lines between blocks (namespace, imports, class)
+- 4 spaces indentation, max 120 chars/line
+- Blank lines between blocks
 - Strict comparison (`===` not `==`)
-- Use `->` for single chain, newline for multiple chains
 
 ### Error Handling
 ```php
@@ -121,23 +114,14 @@ public function show(int $id): JsonResponse
         'message' => 'Retrieved successfully',
     ]);
 }
-
-// For potential failures, use try-catch
-try {
-    // operation
-} catch (\Exception $e) {
-    report($e);
-    return response()->json(['success' => false], 500);
-}
 ```
 
 ## Laravel Conventions
 
-- **Controllers**: API controllers in `app/Http/Controllers/Api/`, return `JsonResponse`
+- **Controllers**: API in `app/Http/Controllers/Api/`, return `JsonResponse`
 - **Routes**: `routes/api.php` for API, `routes/web.php` for web
 - **Models**: Eloquent ORM, define `$fillable`/`$guarded`, use `$casts`
 - **Migrations**: Descriptive names, use `up()`/`down()` methods
-- **Form Requests**: Validation in `app/Http/Requests/`
 - **Services**: Business logic in `app/Services/`
 - **Repositories**: Data access in `app/Repositories/`
 
@@ -172,22 +156,14 @@ public function test_can_create_student(): void
 - Follow AAA pattern (Arrange, Act, Assert)
 - Mock external dependencies with Mockery
 - Test JSON API responses structure
-- Use `refresh()` to reload model after modifications
 
 ## Git Conventions
 
 - Clear, descriptive commit messages
-- Atomic, focused changes
 - Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`
 - Present tense: "Add" not "Added"
 - Run `composer install` after pulling
 
 ## Skills
 
-Available skills for common tasks:
-- `pdf` - PDF operations
-- `pptx` - PowerPoint operations
-- `github` - GitHub interactions
-- `summarize` - URL/content summarization
-- `weather` - Weather information
-- `daily-report` - Generate daily work reports
+Available skills: `pdf`, `pptx`, `github`, `summarize`, `weather`, `daily-report`, `abap-ecc-workflow`, `php-laravel-vue-workflow`, `python-fastapi-vue-workflow`
