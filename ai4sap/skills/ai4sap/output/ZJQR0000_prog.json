@@ -1,0 +1,9 @@
+{
+  "type": "PROG",
+  "name": "ZJQR0000",
+  "timestamp": "2026-03-30T00:58:55.790564",
+  "source": "*&---------------------------------------------------------------------*\r\n*& Report ZJQR0000\r\n*&---------------------------------------------------------------------*\r\n*&\r\n*&---------------------------------------------------------------------*\r\nREPORT zjqr0000.\r\n\r\nINITIALIZATION.\r\n  INCLUDE zjqr0000_frm.\r\n\r\nSTART-OF-SELECTION.\r\n\r\n  DATA: a TYPE i.\r\n  DATA: b TYPE i.\r\n  DATA: c TYPE i.\r\n  a = 1.\r\n  b = 2.\r\n\r\n  PERFORM frm_add_num USING a b CHANGING c.\r\n  WRITE:/ 'c: ', c.\r\n\r\n  PERFORM frm_write_hello.",
+  "source_length": 506,
+  "text_symbols": [],
+  "includes": []
+}
