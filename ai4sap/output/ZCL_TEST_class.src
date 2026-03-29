@@ -1,0 +1,84 @@
+class ZCL_TEST definition
+  public
+  final
+  create public .
+
+public section.
+
+  interfaces IF_HTTP_EXTENSION .
+protected section.
+private section.
+ENDCLASS.
+
+
+
+CLASS ZCL_TEST IMPLEMENTATION.
+
+
+  METHOD if_http_extension~handle_request.
+    TYPES:BEGIN OF ty_data,
+            vbeln   TYPE string,
+            posnr   TYPE string,
+            kunnr   TYPE string,
+            address TYPE string,
+            sdfbh   TYPE string,
+            lxrdh   TYPE string,
+          END OF ty_data.
+
+    DATA lt1 TYPE TABLE OF ty_data.
+    DATA lt2 TYPE TABLE OF zsd11y .
+    DATA ls2 TYPE zsd11y .
+    DATA lv_verb TYPE string .
+    DATA lv_json TYPE string . "传入转化为json
+    DATA:ev_json TYPE  string."返回转化位JSON
+    DATA:ev_json1 TYPE  string."返回转化位JSON
+    TYPES:BEGIN OF mess,
+            id   TYPE char20,
+            sign TYPE char1,
+          END OF mess.
+    DATA lt_mess TYPE TABLE OF mess.
+    DATA ls_mess TYPE  mess.
+    CONDENSE  lv_json NO-GAPS.
+    lv_json = server->request->get_cdata( ).
+
+* Only handles GET method
+*调用方法  POST/ GET
+    lv_verb = server->request->get_header_field( name = '~request_method' ).
+*返回结果 LV_REUTURN
+*    CHECK lv_verb = 'GET'.
+*    server->response->set_status( code = 200 reason = 'Ok' ).
+*    server->response->set_content_type( 'application/json' ).
+*    server->response->set_cdata( data = LV_REUTURN ).
+
+*解析JSON成内表
+    /ui2/cl_json=>deserialize( EXPORTING json   = lv_json
+                                     assoc_arrays     = abap_true
+                                     assoc_arrays_opt = abap_true
+                                     pretty_name = /ui2/cl_json=>pretty_mode-camel_case
+                                     CHANGING data    = lt1[] ).
+    "处理数据 存表 或者bapi产生单据
+    LOOP AT lt1 INTO DATA(ls1).
+      MOVE-CORRESPONDING ls1 TO ls2.
+      APPEND ls2 TO lt2.
+      CLEAR ls2.
+    ENDLOOP.
+    MODIFY zsd11y FROM TABLE lt2.
+
+
+    "数据处理结果
+    ls_mess-sign = 'S'.
+
+
+*将返回数据数据转成JSON
+    ev_json1 = /ui2/cl_json=>serialize( data             = ls_mess
+                                       assoc_arrays     = abap_true
+                                       assoc_arrays_opt = abap_true
+                                      ).
+*返回结果 ev_json1
+
+*    server->response->set_status( code = 200 reason = 'Ok' ).
+*    server->response->set_content_type( 'application/json' ).
+*      server->response->set_cdata( data = ev_json ).
+    server->response->set_cdata( data = ev_json1 ).
+  ENDMETHOD.
+ENDCLASS.
