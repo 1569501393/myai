@@ -66,17 +66,39 @@ METHOD if_http_extension~handle_request.
   TRANSLATE lv_sql TO LOWER CASE.
 
   "----------------------------------------------------------------------"
-  " 2. 解析SQL获取表名和字段
+  " 2. 解析SQL获取表名 (兼容ECC 6.0)
   "----------------------------------------------------------------------"
   DATA: lv_table TYPE tabname.
-  DATA: lv_fields TYPE string.
+  DATA: lv_from_part TYPE string.
+  DATA: lv_len TYPE i.
 
   " 简单解析: SELECT xxx FROM table WHERE xxx
-  FIND REGEX 'SELECT\s+(.+?)\s+FROM\s+(\w+)' IN lv_sql
-    SUBMATCHES lv_fields lv_table.
+  " 使用SEARCH命令查找FROM位置
+  SEARCH lv_sql FOR ' FROM '.
+  IF sy-fdpos = 0.
+    lv_json = `{"error":"Invalid SQL format. Missing FROM clause"}`.
+    server->response->set_content_type( `application/json; charset=utf-8` ).
+    server->response->set_status( code = 400 reason = 'Bad Request' ).
+    server->response->set_cdata( lv_json ).
+    RETURN.
+  ENDIF.
+
+  " 获取FROM后面的部分
+  lv_len = strlen( lv_sql ) - sy-fdpos - 6.
+  lv_from_part = lv_sql+sy-fdpos+6(lv_len).
+  CONDENSE lv_from_part.
+
+  " 获取第一个单词(表名) - 找空格位置
+  FIND ' ' IN lv_from_part MATCH OFFSET lv_len.
+  IF sy-subrc = 0.
+    lv_table = lv_from_part(lv_len).
+  ELSE.
+    lv_table = lv_from_part.
+  ENDIF.
+  CONDENSE lv_table.
 
   IF lv_table IS INITIAL.
-    lv_json = `{"error":"Invalid SQL format. Use: SELECT fields FROM table"}`.
+    lv_json = `{"error":"Invalid SQL format. Table name not found"}`.
     server->response->set_content_type( `application/json; charset=utf-8` ).
     server->response->set_status( code = 400 reason = 'Bad Request' ).
     server->response->set_cdata( lv_json ).
