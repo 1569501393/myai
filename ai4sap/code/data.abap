@@ -4,13 +4,13 @@
 *& 功能: 通过REST API动态查询SAP表数据
 *& 作者: AI Assistant
 *& 日期: 2026-03-30
-*& 版本: 1.2
-*& 说明: 兼容SAP ECC 6.0版本 (完全兼容,无7.4+语法)
+*& 版本: 1.0
+*& 说明: 兼容SAP ECC 6.0版本,使用标准ABAP动态SQL
 *&---------------------------------------------------------------------*
 *
 * 使用示例:
-*   /sap/bc/zzjq?table=SPFLI&limit=3
-*   /sap/bc/zzjq?table=MARA&limit=10
+*   /sap/bc/rest/zjqr_data?table=SPFLI&limit=3
+*   /sap/bc/rest/zjqr_data?table=MARA&limit=10
 *
 * 参数说明:
 *   table (必需): 表名
@@ -21,16 +21,17 @@
 METHOD if_http_extension~handle_request.
 
   "----------------------------------------------------------------------"
-  " 定义变量 (不使用内联声明,兼容ECC 6.0)
+  " 定义变量
   "----------------------------------------------------------------------"
-  DATA: lv_table    TYPE tabname.              " 动态表名
-  DATA: lv_limit    TYPE i.                    " 返回行数
-  DATA: lv_json     TYPE string.                " JSON响应
-  DATA: lv_error    TYPE string.                " 错误信息
-  DATA: lo_data     TYPE REF TO data.           " 动态数据引用
-  DATA: lx_err      TYPE REF TO cx_dynamic_check. " 异常引用
+  DATA:
+    lv_table    TYPE tabname,               " 动态表名
+    lv_limit    TYPE i,                     " 返回行数
+    lv_json     TYPE string,                " JSON响应
+    lv_error    TYPE string,                " 错误信息
+    lo_data     TYPE REF TO data.           " 动态数据引用
 
-  FIELD-SYMBOLS: <lt_data> TYPE ANY TABLE.    " 动态内表
+  FIELD-SYMBOLS:
+    <lt_data>   TYPE ANY TABLE.             " 动态内表
 
   "----------------------------------------------------------------------"
   " 1. 获取请求参数
@@ -41,7 +42,7 @@ METHOD if_http_extension~handle_request.
   " SAP表名必须大写
   TRANSLATE lv_table TO UPPER CASE.
 
-  " 参数验证 - 表名为空
+  " 参数验证
   IF lv_table IS INITIAL.
     lv_json = `{"error":"Table parameter is required"}`.
     server->response->set_content_type( `application/json; charset=utf-8` ).
@@ -50,18 +51,9 @@ METHOD if_http_extension~handle_request.
     RETURN.
   ENDIF.
 
-  " 参数验证 - 表名格式 (只检查是否包含非法字符)
+  " 验证表名格式(简单检查)
   IF lv_table CN 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'.
-    lv_json = `{"error":"Table name contains invalid characters"}`.
-    server->response->set_content_type( `application/json; charset=utf-8` ).
-    server->response->set_status( code = 400 reason = 'Bad Request' ).
-    server->response->set_cdata( lv_json ).
-    RETURN.
-  ENDIF.
-
-  " 检查表名长度 (最大16字符)
-  IF strlen( lv_table ) > 16.
-    lv_json = `{"error":"Table name too long (max 16 characters)"}`.
+    lv_json = `{"error":"Invalid table name"}`.
     server->response->set_content_type( `application/json; charset=utf-8` ).
     server->response->set_status( code = 400 reason = 'Bad Request' ).
     server->response->set_cdata( lv_json ).
@@ -82,10 +74,9 @@ METHOD if_http_extension~handle_request.
       CREATE DATA lo_data TYPE STANDARD TABLE OF (lv_table).
       ASSIGN lo_data->* TO <lt_data>.
 
-    " 捕获动态创建错误 (可能是表不存在或字段结构问题)
-    CATCH cx_dynamic_check INTO lx_err.
-      lv_error = lx_err->get_text( ).
-      CONCATENATE '{"error":"Table or fields error: ' lv_error '"}' INTO lv_json.
+    " 捕获动态创建错误
+    CATCH cx_dynamic_check.
+      lv_json = |{"error":"Invalid table name: { lv_table }"|.
       server->response->set_content_type( `application/json; charset=utf-8` ).
       server->response->set_status( code = 400 reason = 'Bad Request' ).
       server->response->set_cdata( lv_json ).
@@ -93,17 +84,16 @@ METHOD if_http_extension~handle_request.
   ENDTRY.
 
   "----------------------------------------------------------------------"
-  " 3. 执行动态查询 (无@语法,兼容ECC)
+  " 3. 执行动态查询
   "----------------------------------------------------------------------"
   TRY.
       SELECT *
         FROM (lv_table)
-        UP TO lv_limit ROWS
-        INTO CORRESPONDING FIELDS OF TABLE <lt_data>.
+        UP TO @lv_limit ROWS
+        INTO TABLE @<lt_data>.
 
-    CATCH cx_dynamic_check INTO lx_err.
-      lv_error = lx_err->get_text( ).
-      CONCATENATE '{"error":"Query failed: ' lv_error '"}' INTO lv_json.
+    CATCH cx_dynamic_check INTO DATA(lx_err).
+      lv_json = |{"error":"Query failed: { lx_err->get_text( ) }"|.
       server->response->set_content_type( `application/json; charset=utf-8` ).
       server->response->set_status( code = 500 reason = 'Internal Server Error' ).
       server->response->set_cdata( lv_json ).
@@ -111,11 +101,12 @@ METHOD if_http_extension~handle_request.
   ENDTRY.
 
   "----------------------------------------------------------------------"
-  " 4. 返回JSON响应 (abap_true改为'X',兼容ECC)
+  " 4. 返回JSON响应
   "----------------------------------------------------------------------"
+  " 使用 /ui2/cl_json (ECC和S/4都可用)
   lv_json = /ui2/cl_json=>serialize(
     data     = <lt_data>
-    compress = 'X' ).                          " 使用'X'替代abap_true
+    compress = abap_true ).
 
   server->response->set_content_type( `application/json; charset=utf-8` ).
   server->response->set_cdata( lv_json ).
