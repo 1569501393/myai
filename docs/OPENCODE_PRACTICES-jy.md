@@ -1,5 +1,16 @@
 # OPENCODE_PRACTICES
 
+## 练习目录
+~/tmp/www
+
+➜  jieqiang@LAPTOP-F7CRVSFV[~/tmp/www]git:(main) ✗ $                      (5s)[3:47:34]
+
+
+myai
+➜  jieqiang@LAPTOP-F7CRVSFV[~/tmp/www]git:(main) ✗ $ git remote -v        (5s)[3:47:34]
+origin  git@github.com:1569501393/myai.git (fetch)
+origin  git@github.com:1569501393/myai.git (push)
+
 ## opencode 安装
 
 ## opencode 配置
