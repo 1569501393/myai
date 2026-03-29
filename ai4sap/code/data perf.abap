@@ -1,422 +1,382 @@
-*"---------------------------------------------------------------------*
-*"* 动态表数据查询 HTTP Handler
-*"*
-*"* 功能: 通过 REST API 动态查询 SAP 表数据
-*"* 
-*"* 参数说明:
-*"*   - table    : 表名 (必需)
-*"*   - fields   : 字段列表,逗号分隔 (可选, 默认 *)
-*"*   - where    : WHERE 条件 (可选)
-*"*   - orderby  : 排序字段 (可选)
-*"*   - rows     : 返回行数 (可选, 默认 10)
-*"*
-*"* 使用示例:
-*"*   /sap/bc/zzjq?table=MARA&rows=5
-*"*   /sap/bc/zzjq?table=MARA&fields=MATNR,ERSDA&rows=10
-*"*   /sap/bc/zzjq?table=KNA1&where=LAND1='CN'&orderby=KUNNR&rows=20
-*"*
-*"* 作者: OpenCode AI
-*"* 日期: 2026-03-30
-*"---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& 动态表查询 ICF Handler
+*& 功能: 通过REST API动态查询任意SAP表数据
+*& 作者: AI Assistant
+*& 日期: 2026-03-30
+*&---------------------------------------------------------------------*
+*
+* 使用示例:
+*   /sap/bc/rest/z_dynamic_query?table=SPFLI&fields=CARRID,CONNID,CITYFROM,CITYTO&where=CARRID='AA'&orderby=CITYFROM&limit=10
+*   /sap/bc/rest/z_dynamic_query?table=ZTJQ0003&limit=100
+*
+* 参数说明:
+*   - table  (必需): 表名,如 SPFLI, ZTJQ0003, MARA 等
+*   - fields (可选): 字段列表,逗号分隔,如 CARRID,CONNID
+*   - where  (可选): WHERE条件,如 CARRID='AA' AND CITYTO='NEW YORK'
+*   - orderby(可选): 排序字段,如 CARRID,CONNID DESC
+*   - limit  (可选): 返回行数,默认10,最大1000
+*   - offset (可选): 偏移量,默认0
+*
+*&---------------------------------------------------------------------*
 
-*"---------------------------------------------------------------------*
-*"* 接口定义
-*"---------------------------------------------------------------------*
-INTERFACE if_http_extension.
-  METHODS handle_request
-    IMPORTING
-      server TYPE REF TO if_http_server.
-ENDINTERFACE.
+CLASS zcl_dynamic_query DEFINITION PUBLIC.
 
-*"---------------------------------------------------------------------*
-"* 类定义
-*"---------------------------------------------------------------------*
-CLASS zcl_dynamic_table_query DEFINITION.
   PUBLIC SECTION.
-
-    *"---------------------------------------------------------------------*
-    *"* 接口实现 - HTTP 请求处理
-    *"---------------------------------------------------------------------*
-    METHODS if_http_extension~handle_request
-      IMPORTING
-        server TYPE REF TO if_http_server.
+    INTERFACES if_http_extension.
 
   PRIVATE SECTION.
+    CONSTANTS:
+      c_max_limit TYPE i VALUE 1000,          " 最大返回行数
+      c_default_limit TYPE i VALUE 10.       " 默认返回行数
 
-    *"---------------------------------------------------------------------*
-    "* 私有方法 - 参数获取
-    *"---------------------------------------------------------------------*
-    METHODS get_form_param
+    TYPES: BEGIN OF ty_error,
+             code    TYPE string,
+             message TYPE string,
+           END OF ty_error.
+
+    " 验证表名是否合法
+    METHODS validate_table_name
       IMPORTING
-        iv_name      TYPE string
-        iv_default   TYPE string OPTIONAL
+        iv_table TYPE tabname
+      RAISING
+        cx_dynamic_check.
+
+    " 验证字段列表
+    METHODS validate_fields
+      IMPORTING
+        iv_table  TYPE tabname
+        iv_fields TYPE string
+      RAISING
+        cx_dynamic_check.
+
+    " 解析并验证WHERE条件
+    METHODS parse_where_clause
+      IMPORTING
+        iv_where TYPE string
+      EXPORTING
+        ev_where TYPE string
+      RAISING
+        cx_dynamic_check.
+
+    " 安全过滤SQL注入
+    METHODS sanitize_input
+      IMPORTING
+        iv_input TYPE string
       RETURNING
-        VALUE(rv_value) TYPE string.
-
-    *"---------------------------------------------------------------------*
-    "* 私有方法 - 参数验证
-    *"---------------------------------------------------------------------*
-    METHODS validate_parameters
-      IMPORTING
-        iv_table   TYPE string
-        iv_fields  TYPE string
-        iv_where   TYPE string
-        iv_orderby TYPE string
-        iv_rows    TYPE string
-      RETURNING
-        VALUE(rv_valid) TYPE abap_bool
-      EXPORTING
-        ev_error_msg TYPE string.
-
-    *"---------------------------------------------------------------------*
-    "* 私有方法 - 构建动态查询
-    *"---------------------------------------------------------------------*
-    METHODS build_dynamic_select
-      IMPORTING
-        iv_table   TYPE string
-        iv_fields  TYPE string
-        iv_where   TYPE string
-        iv_orderby TYPE string
-        iv_rows    TYPE i
-      EXPORTING
-        ev_select  TYPE string
-        ev_error   TYPE string.
-
-    *"---------------------------------------------------------------------*
-    "* 私有方法 - 执行查询
-    *"---------------------------------------------------------------------*
-    METHODS execute_query
-      IMPORTING
-        iv_select TYPE string
-      EXPORTING
-        et_data   TYPE STANDARD TABLE
-        ev_error  TYPE string.
-
-    *"---------------------------------------------------------------------*
-    "* 私有方法 - 返回 JSON 响应
-    *"---------------------------------------------------------------------*
-    METHODS return_json_response
-      IMPORTING
-        iv_data     TYPE any
-        iv_success  TYPE abap_bool
-        iv_message  TYPE string OPTIONAL.
+        VALUE(rv_output) TYPE string.
 
 ENDCLASS.
 
-*"---------------------------------------------------------------------*
-"* 类实现
-*"---------------------------------------------------------------------*
-CLASS zcl_dynamic_table_query IMPLEMENTATION.
 
-  *"---------------------------------------------------------------------*
-  "* 方法: if_http_extension~handle_request
-  "* 说明: HTTP 请求入口点
-  *"---------------------------------------------------------------------*
+CLASS zcl_dynamic_query IMPLEMENTATION.
+
+  *&---------------------------------------------------------------------*
+  *&  方法: IF_HTTP_EXTENSION~HANDLE_REQUEST
+  *&  描述: ICF入口点,处理HTTP请求
+  *&---------------------------------------------------------------------*
   METHOD if_http_extension~handle_request.
-    
+
     DATA:
-      lv_table    TYPE string,          " 表名
-      lv_fields   TYPE string,          " 字段列表
-      lv_where    TYPE string,          " WHERE 条件
-      lv_orderby  TYPE string,          " ORDER BY 条件
-      lv_rows     TYPE string,          " 行数限制
-      lv_rows_int TYPE i,               " 行数 (整型)
-      lv_select   TYPE string,          " SELECT 语句
-      lv_error    TYPE string,          " 错误信息
-      lt_data     TYPE STANDARD TABLE,  " 查询结果
-      lv_json     TYPE string.          " JSON 响应
+      lv_table     TYPE tabname,              " 动态表名
+      lv_fields    TYPE string,               " 字段列表(逗号分隔)
+      lv_where     TYPE string,               " WHERE条件
+      lv_orderby   TYPE string,               " ORDER BY字段
+      lv_limit     TYPE i,                    " 返回行数
+      lv_offset    TYPE i,                    " 偏移量
+      lv_json      TYPE string,               " JSON响应
+      lv_error     TYPE string,
+      ls_error     TYPE ty_error.
 
+    DATA: lo_data TYPE REF TO data.
+    FIELD-SYMBOLS: <lt_data> TYPE ANY TABLE.
+
+    "----------------------------------------------------------------------
     " 1. 获取请求参数
-    lv_table   = me->get_form_param( iv_name = 'table' ).
-    lv_fields  = me->get_form_param( iv_name = 'fields' ).
-    lv_where   = me->get_form_param( iv_name = 'where' ).
-    lv_orderby = me->get_form_param( iv_name = 'orderby' ).
-    lv_rows    = me->get_form_param( iv_name = 'rows' iv_default = '10' ).
+    "----------------------------------------------------------------------
+    lv_table  = server->request->get_form_field( name = `table` ).
+    lv_fields = server->request->get_form_field( name = `fields` ).
+    lv_where  = server->request->get_form_field( name = `where` ).
+    lv_orderby = server->request->get_form_field( name = `orderby` ).
+    lv_limit = server->request->get_form_field( name = `limit` ).
+    lv_offset = server->request->get_form_field( name = `offset` ).
 
-    " 2. 参数验证 - 表名必须大写
+    "----------------------------------------------------------------------
+    " 2. 参数验证 - 表名(必需)
+    "----------------------------------------------------------------------
+    IF lv_table IS INITIAL.
+      ls_error-code = 'TABLE_REQUIRED'.
+      ls_error-message = 'Table parameter is required'.
+      lv_json = /ui2/cl_json=>serialize( data = ls_error ).
+      server->response->set_status( code = 400 reason = 'Bad Request' ).
+      server->response->set_content_type( `application/json; charset=utf-8` ).
+      server->response->set_cdata( lv_json ).
+      RETURN.
+    ENDIF.
+
+    " 标准化表名为大写
     TRANSLATE lv_table TO UPPER CASE.
 
-    " 3. 验证参数
-    IF me->validate_parameters(
-        iv_table   = lv_table
-        iv_fields  = lv_fields
-        iv_where   = lv_where
-        iv_orderby = lv_orderby
-        iv_rows    = lv_rows
-      ) = abap_false.
-      
-      " 返回验证错误
-      me->return_json_response(
-        iv_data    = lt_data
-        iv_success = abap_false
-        iv_message = lv_error
-      ).
-      RETURN.
+    " 验证表名安全性
+    TRY.
+        validate_table_name( lv_table ).
+      CATCH cx_dynamic_check INTO DATA(lx_table_err).
+        ls_error-code = 'INVALID_TABLE'.
+        ls_error-message = lx_table_err->get_text( ).
+        lv_json = /ui2/cl_json=>serialize( data = ls_error ).
+        server->response->set_status( code = 400 reason = 'Bad Request' ).
+        server->response->set_content_type( `application/json; charset=utf-8` ).
+        server->response->set_cdata( lv_json ).
+        RETURN.
+    ENDTRY.
+
+    "----------------------------------------------------------------------
+    " 3. 参数验证 - LIMIT
+    "----------------------------------------------------------------------
+    IF lv_limit IS INITIAL OR lv_limit <= 0.
+      lv_limit = c_default_limit.              " 使用默认值
+    ELSEIF lv_limit > c_max_limit.
+      lv_limit = c_max_limit.                 " 限制最大值
     ENDIF.
 
-    " 4. 转换行数为整数
-    lv_rows_int = CONV i( lv_rows ).
-    IF lv_rows_int <= 0 OR lv_rows_int > 1000.
-      lv_rows_int = 10.  " 默认值
-    ENDIF.
-
-    " 5. 构建动态 SELECT 语句
-    me->build_dynamic_select(
-      EXPORTING
-        iv_table   = lv_table
-        iv_fields  = lv_fields
-        iv_where   = lv_where
-        iv_orderby = lv_orderby
-        iv_rows    = lv_rows_int
-      IMPORTING
-        ev_select  = lv_select
-        ev_error   = lv_error
-    ).
-
-    IF lv_error IS NOT INITIAL.
-      me->return_json_response(
-        iv_data    = lt_data
-        iv_success = abap_false
-        iv_message = lv_error
-      ).
-      RETURN.
-    ENDIF.
-
-    " 6. 执行查询
-    me->execute_query(
-      EXPORTING
-        iv_select = lv_select
-      IMPORTING
-        et_data   = lt_data
-        ev_error  = lv_error
-    ).
-
-    IF lv_error IS NOT INITIAL.
-      me->return_json_response(
-        iv_data    = lt_data
-        iv_success = abap_false
-        iv_message = lv_error
-      ).
-      RETURN.
-    ENDIF.
-
-    " 7. 返回成功响应 (JSON)
-    me->return_json_response(
-      iv_data    = lt_data
-      iv_success = abap_true
-      iv_message = |查询成功，返回 { lines( lt_data ) } 条记录|
-    ).
-
-  ENDMETHOD.
-
-  *"---------------------------------------------------------------------*
-  "* 方法: get_form_param
-  "* 说明: 获取表单参数
-  *"---------------------------------------------------------------------*
-  METHOD get_form_param.
-    
-    DATA: lv_value TYPE string.
-    
-    lv_value = server->request->get_form_field( name = iv_name ).
-    
-    IF lv_value IS INITIAL AND iv_default IS SUPPLIED.
-      rv_value = iv_default.
+    " 解析OFFSET
+    IF lv_offset IS INITIAL.
+      lv_offset = 0.
     ELSE.
-      rv_value = lv_value.
-    ENDIF.
-    
-    " 去除前后空格
-    SHIFT rv_value LEFT DELETING LEADING space.
-    SHIFT rv_value RIGHT DELETING TRAILING space.
-    
-  ENDMETHOD.
-
-  *"---------------------------------------------------------------------*
-  "* 方法: validate_parameters
-  "* 说明: 验证输入参数
-  *"---------------------------------------------------------------------*
-  METHOD validate_parameters.
-    
-    rv_valid = abap_true.
-    ev_error_msg = ''.
-
-    " 1. 验证表名 (必需)
-    IF iv_table IS INITIAL.
-      rv_valid = abap_false.
-      ev_error_msg = '错误: 表名 (table) 参数不能为空'.
-      RETURN.
+      lv_offset = CONV i( lv_offset ).
     ENDIF.
 
-    " 2. 验证表名格式 (只能是字母和数字)
-    IF iv_table CN 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'.
-      rv_valid = abap_false.
-      ev_error_msg = '错误: 表名格式不正确，只允许字母、数字和下划线'.
-      RETURN.
-    ENDIF.
-
-    " 3. 验证字段列表 (如果提供)
-    IF iv_fields IS NOT INITIAL.
-      IF iv_fields CN 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_,'.
-        rv_valid = abap_false.
-        ev_error_msg = '错误: 字段列表格式不正确'.
-        RETURN.
-      ENDIF.
-    ENDIF.
-
-    " 4. 验证 WHERE 条件 (基础检查)
-    IF iv_where IS NOT INITIAL.
-      " 防止 SQL 注入 - 简单检查
-      IF iv_where CO 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_=''<>.' OR
-         iv_where CA '; DROP' OR
-         iv_where CA 'DELETE' OR
-         iv_where CA 'UPDATE' OR
-         iv_where CA 'INSERT'.
-        rv_valid = abap_false.
-        ev_error_msg = '错误: WHERE 条件包含非法字符或关键词'.
-        RETURN.
-      ENDIF.
-    ENDIF.
-
-    " 5. 验证 ORDER BY (基础检查)
-    IF iv_orderby IS NOT INITIAL.
-      IF iv_orderby CN 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ ,'.
-        rv_valid = abap_false.
-        ev_error_msg = '错误: ORDER BY 字段格式不正确'.
-        RETURN.
-      ENDIF.
-    ENDIF.
-
-    " 6. 验证行数
-    IF iv_rows IS NOT INITIAL.
-      DATA lv_rows TYPE i.
+    "----------------------------------------------------------------------
+    " 4. 参数验证 - FIELDS (可选)
+    "----------------------------------------------------------------------
+    IF lv_fields IS NOT INITIAL.
+      " 标准化字段名为大写
+      TRANSLATE lv_fields TO UPPER CASE.
+      " 验证字段是否存在
       TRY.
-          lv_rows = CONV i( iv_rows ).
-          IF lv_rows < 1 OR lv_rows > 1000.
-            rv_valid = abap_false.
-            ev_error_msg = '错误: 行数 (rows) 必须在 1-1000 之间'.
-            RETURN.
-          ENDIF.
-        CATCH cx_sy_conversion_error.
-          rv_valid = abap_false.
-          ev_error_msg = '错误: 行数 (rows) 必须是数字'.
+          validate_fields( iv_table = lv_table iv_fields = lv_fields ).
+        CATCH cx_dynamic_check INTO DATA(lx_field_err).
+          ls_error-code = 'INVALID_FIELDS'.
+          ls_error-message = lx_field_err->get_text( ).
+          lv_json = /ui2/cl_json=>serialize( data = ls_error ).
+          server->response->set_status( code = 400 reason = 'Bad Request' ).
+          server->response->set_content_type( `application/json; charset=utf-8` ).
+          server->response->set_cdata( lv_json ).
           RETURN.
       ENDTRY.
     ENDIF.
 
-  ENDMETHOD.
-
-  *"---------------------------------------------------------------------*
-  "* 方法: build_dynamic_select
-  "* 说明: 构建动态 SELECT 语句
-  "*---------------------------------------------------------------------*
-  METHOD build_dynamic_select.
-    
-    DATA: lv_fields TYPE string.
-    ev_select = ''.
-    ev_error = ''.
-
-    " 1. 处理字段列表
-    IF iv_fields IS INITIAL.
-      lv_fields = '*'.
-    ELSE.
-      " 去除空格
-      REPLACE ALL OCCURRENCES OF ' ' IN iv_fields WITH ''.
-      lv_fields = iv_fields.
+    "----------------------------------------------------------------------
+    " 5. 参数处理 - WHERE条件
+    "----------------------------------------------------------------------
+    IF lv_where IS NOT INITIAL.
+      " 解析并验证WHERE条件
+      TRY.
+          parse_where_clause(
+            EXPORTING iv_where = lv_where
+            IMPORTING ev_where = lv_where ).
+        CATCH cx_dynamic_check INTO DATA(lx_where_err).
+          ls_error-code = 'INVALID_WHERE'.
+          ls_error-message = lx_where_err->get_text( ).
+          lv_json = /ui2/cl_json=>serialize( data = ls_error ).
+          server->response->set_status( code = 400 reason = 'Bad Request' ).
+          server->response->set_content_type( `application/json; charset=utf-8` ).
+          server->response->set_cdata( lv_json ).
+          RETURN.
+      ENDTRY.
     ENDIF.
 
-    " 2. 构建 SELECT 语句
-    ev_select = |SELECT { lv_fields } FROM { iv_table }|.
-
-    " 3. 添加 WHERE 条件
-    IF iv_where IS NOT INITIAL.
-      ev_select = ev_select && | WHERE { iv_where }|.
+    "----------------------------------------------------------------------
+    " 6. 参数处理 - ORDER BY
+    "----------------------------------------------------------------------
+    IF lv_orderby IS NOT INITIAL.
+      TRANSLATE lv_orderby TO UPPER CASE.
     ENDIF.
 
-    " 4. 添加 ORDER BY
-    IF iv_orderby IS NOT INITIAL.
-      ev_select = ev_select && | ORDER BY { iv_orderby }|.
-    ENDIF.
-
-    " 5. 添加行数限制
-    IF iv_rows > 0.
-      ev_select = ev_select && | UP TO { iv_rows } ROWS |.
-    ENDIF.
-
-    " 添加 INTO TABLE (动态内表)
-    ev_select = ev_select && | INTO TABLE @DATA(lt_result)|.
-
-  ENDMETHOD.
-
-  *"---------------------------------------------------------------------*
-  "* 方法: execute_query
-  "* 说明: 执行动态 SELECT 查询
-  *"---------------------------------------------------------------------*
-  METHOD execute_query.
-    
-    FIELD-SYMBOLS <lt_data> TYPE STANDARD TABLE.
-    
-    et_data = VALUE #( ).  " 初始化
-    ev_error = ''.
-
-    " 执行动态查询
+    "----------------------------------------------------------------------
+    " 7. 执行动态查询
+    "----------------------------------------------------------------------
     TRY.
-        CREATE DATA et_data TYPE STANDARD TABLE OF (space).
-        ASSIGN et_data->* TO <lt_data>.
+        " 创建动态内表
+        CREATE DATA lo_data TYPE STANDARD TABLE OF (lv_table).
+        ASSIGN lo_data->* TO <lt_data>.
 
-        " 使用动态 SQL
-        EXECUTE IMMEDIATE iv_select INTO TABLE <lt_data>.
+        " 构建动态SELECT语句
+        DATA(lv_select) = CONDITION #( WHEN lv_fields IS INITIAL THEN '*' ELSE lv_fields ).
 
-      CATCH cx_root INTO DATA(lx_error).
-        ev_error = |查询错误: { lx_error->get_text( ) }|.
+        " 使用ABAP动态SQL
+        IF lv_where IS INITIAL AND lv_orderby IS INITIAL.
+          " 简单查询
+          SELECT (lv_select)
+            FROM (lv_table)
+            INTO TABLE @<lt_data>
+            UP TO @lv_limit ROWS.
+        ELSEIF lv_where IS NOT INITIAL AND lv_orderby IS INITIAL.
+          " 带WHERE条件
+          SELECT (lv_select)
+            FROM (lv_table)
+            WHERE (lv_where)
+            INTO TABLE @<lt_data>
+            UP TO @lv_limit ROWS.
+        ELSEIF lv_where IS INITIAL AND lv_orderby IS NOT INITIAL.
+          " 带ORDER BY
+          SELECT (lv_select)
+            FROM (lv_table)
+            INTO TABLE @<lt_data>
+            UP TO @lv_limit ROWS
+            ORDER BY (lv_orderby).
+        ELSE.
+          " 带WHERE和ORDER BY
+          SELECT (lv_select)
+            FROM (lv_table)
+            WHERE (lv_where)
+            INTO TABLE @<lt_data>
+            UP TO @lv_limit ROWS
+            ORDER BY (lv_orderby).
+        ENDIF.
+
+      CATCH cx_dynamic_check INTO DATA(lx_query_err).
+        ls_error-code = 'QUERY_ERROR'.
+        ls_error-message = lx_query_err->get_text( ).
+        lv_json = /ui2/cl_json=>serialize( data = ls_error ).
+        server->response->set_status( code = 500 reason = 'Internal Server Error' ).
+        server->response->set_content_type( `application/json; charset=utf-8` ).
+        server->response->set_cdata( lv_json ).
+        RETURN.
     ENDTRY.
 
-  ENDMETHOD.
-
-  *"---------------------------------------------------------------------*
-  "* 方法: return_json_response
-  "* 说明: 返回 JSON 格式响应
-  *"---------------------------------------------------------------------*
-  METHOD return_json_response.
-    
-    DATA: lv_json TYPE string.
-    DATA: ls_response TYPE ty_response.  " 需要定义响应结构
+    "----------------------------------------------------------------------
+    " 8. 返回JSON响应
+    "----------------------------------------------------------------------
+    " 获取实际返回行数
+    DATA(lv_count) = lines( <lt_data> ).
 
     " 构建响应结构
-    IF iv_success = abap_true.
-      " 成功响应
-      /ui2/cl_json=>serialize(
-        EXPORTING
-          data             = iv_data
-          compress         = abap_true
-          pretty_print     = abap_true
-        RECEIVING
-          r_json           = lv_json
-      ).
+    DATA: BEGIN OF ls_response,
+            success TYPE abap_bool,
+            count   TYPE i,
+            data    TYPE REF TO data,
+          END OF ls_response.
+    ls_response-success = abap_true.
+    ls_response-count = lv_count.
+    GET REFERENCE OF <lt_data> INTO ls_response-data.
 
-      " 添加元信息
-      lv_json = |{{\n  \"success\": true,\n  \"message\": \"{ iv_message }\",\n  \"data\": { lv_json }\n}}|.
-    ELSE.
-      " 错误响应
-      lv_json = |{{\n  \"success\": false,\n  \"message\": \"{ iv_message }\",\n  \"data\": []\n}}|.
-    ENDIF.
+    lv_json = /ui2/cl_json=>serialize(
+      data        = ls_response
+      compress    = abap_true
+      pretty_name = /ui2/cl_json=>pretty_mode-low_case ).
 
-    " 设置响应头
-    server->response->set_content_type( 'application/json; charset=utf-8' ).
-    server->response->set_header_field(
-      name  = 'Access-Control-Allow-Origin'
-      value = '*'
-    ).
+    server->response->set_content_type( `application/json; charset=utf-8` ).
     server->response->set_cdata( lv_json ).
 
   ENDMETHOD.
 
-ENDCLASS.
 
-*"---------------------------------------------------------------------*
-"* 请求/响应结构定义
-*"---------------------------------------------------------------------*
-TYPES: BEGIN OF ty_response,
-         success TYPE abap_bool,
-         message TYPE string,
-         data    TYPE STANDARD TABLE,
-       END OF ty_response.
+  *&---------------------------------------------------------------------*
+  *&  方法: VALIDATE_TABLE_NAME
+  *&  描述: 验证表名是否存在于SAP系统中
+  *&---------------------------------------------------------------------*
+  METHOD validate_table_name.
+    " 检查表名格式(必须以字母开头,最长16位)
+    IF iv_table IS INITIAL OR strlen( iv_table ) > 16.
+      RAISE EXCEPTION TYPE cx_dynamic_check
+        EXPORTING text = 'Invalid table name: must be 1-16 characters'.
+    ENDIF.
+
+    " 检查首字符必须是字母
+    IF iv_table(1) CA '0123456789'.
+      RAISE EXCEPTION TYPE cx_dynamic_check
+        EXPORTING text = 'Invalid table name: must start with a letter'.
+    ENDIF.
+
+    " 检查只包含合法字符
+    IF iv_table CN 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'.
+      RAISE EXCEPTION TYPE cx_dynamic_check
+        EXPORTING text = 'Invalid table name: only allow A-Z, 0-9, _'.
+    ENDIF.
+
+    " 验证表在SAP DDIC中存在
+    SELECT SINGLE @abap_true
+      FROM dd02l
+      WHERE tabname = @iv_table
+        AND as4local = @abap_true
+        AND tabclass = 'TRANSP'
+      INTO @DATA(lv_exists).
+
+    IF lv_exists = @abap_false.
+      RAISE EXCEPTION TYPE cx_dynamic_check
+        EXPORTING text = |Table { iv_table } does not exist in SAP DDIC|.
+    ENDIF.
+  ENDMETHOD.
+
+
+  *&---------------------------------------------------------------------*
+  *&  方法: VALIDATE_FIELDS
+  *&  描述: 验证字段列表是否属于指定表
+  *&---------------------------------------------------------------------*
+  METHOD validate_fields.
+    DATA: lt_fields TYPE STANDARD TABLE OF string,
+          lv_field  TYPE string.
+
+    " 分割字段列表
+    SPLIT iv_fields AT ',' INTO TABLE lt_fields.
+    DELETE lt_fields WHERE table_line IS INITIAL.
+
+    IF lt_fields IS INITIAL.
+      RAISE EXCEPTION TYPE cx_dynamic_check
+        EXPORTING text = 'Field list cannot be empty'.
+    ENDIF.
+
+    " 验证每个字段
+    LOOP AT lt_fields INTO lv_field.
+      CONDENSE lv_field.
+
+      " 检查字段在表中是否存在
+      SELECT SINGLE @abap_true
+        FROM dd03l
+        WHERE tabname = @iv_table
+          AND fieldname = @lv_field
+        INTO @DATA(lv_field_exists).
+
+      IF lv_field_exists = @abap_false.
+        RAISE EXCEPTION TYPE cx_dynamic_check
+          EXPORTING text = |Field { lv_field } does not exist in table { iv_table }|.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  *&---------------------------------------------------------------------*
+  *&  方法: PARSE_WHERE_CLAUSE
+  *&  描述: 解析和验证WHERE条件
+  *&---------------------------------------------------------------------*
+  METHOD parse_where_clause.
+    " 安全过滤输入
+    ev_where = sanitize_input( iv_where ).
+
+    " 基础SQL注入检查
+    IF ev_where CO 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ =<>()''+-*/ '.
+      " 基本安全,继续
+    ELSE.
+      " 检测到可疑字符
+      IF ev_where CA 'CHAIN;DROP;EXEC;INSERT;UPDATE;DELETE;UNION;SELECT'.
+        RAISE EXCEPTION TYPE cx_dynamic_check
+          EXPORTING text = 'SQL injection detected in WHERE clause'.
+      ENDIF.
+    ENDIF.
+  ENDMETHOD.
+
+
+  *&---------------------------------------------------------------------*
+  *&  方法: SANITIZE_INPUT
+  *&  描述: 安全过滤用户输入
+  *&---------------------------------------------------------------------*
+  METHOD sanitize_input.
+    rv_output = iv_input.
+
+    " 移除XSS风险字符
+    REPLACE ALL OCCURRENCES OF '<' IN rv_output WITH ''.
+    REPLACE ALL OCCURRENCES OF '>' IN rv_output WITH ''.
+    REPLACE ALL OCCURRENCES OF '&' IN rv_output WITH ''.
+  ENDMETHOD.
+
+ENDCLASS.
