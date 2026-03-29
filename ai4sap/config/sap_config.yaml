@@ -1,0 +1,20 @@
+# SAP Connection Configuration
+# Generated from prd_connect_sap.md requirements
+
+SAP_CONFIG:
+  USER: U1170
+  PASSWD: hysoft888999
+  CLIENT: "400"
+  LANG: ZH
+
+ADT_CONFIG:
+  ADT_PROTOCOL: http
+  ADT_HOST: mysap.goodsap.cn
+  ADT_PORT: 50400
+  # Full base URL constructed as: {protocol}://{host}:{port}
+  BASE_URL: http://mysap.goodsap.cn:50400
+
+# Connection settings
+CONNECTION:
+  timeout: 30
+  retry_count: 3

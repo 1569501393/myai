@@ -1,0 +1,10 @@
+{
+  "error": "All endpoints failed",
+  "endpoints_tried": [
+    "http://mysap.goodsap.cn:50400/sap/bc/rest/odi/v3/mara",
+    "http://mysap.goodsap.cn:50400/sap/bc/rest/odi/mara",
+    "http://mysap.goodsap.cn:50400/sap/bc/adt/ddic/tables/mara/data"
+  ],
+  "last_status": 404,
+  "note": "SAP ADT table access may not be enabled on this system. Program source retrieval works."
+}
