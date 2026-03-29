@@ -3,13 +3,13 @@
 *& 功能: 通过REST API动态查询任意SAP表数据
 *& 作者: AI Assistant
 *& 日期: 2026-03-30
-*& 版本: 1.1
-*& 说明: 兼容SAP ECC 6.0版本 (无@语法,无字符串模板表达式)
+*& 版本: 1.2
+*& 说明: 兼容SAP ECC 6.0版本 (完全兼容,无7.4+语法)
 *&---------------------------------------------------------------------*
 *
 * 使用示例:
-*   /sap/bc/rest/z_dynamic_query?table=SPFLI&fields=CARRID,CONNID&where=CARRID='AA'&orderby=CITYFROM&limit=10
-*   /sap/bc/rest/z_dynamic_query?table=ZTJQ0003&limit=100
+*   /sap/bc/zzjq?table=SPFLI&fields=CARRID,CONNID&where=CARRID='AA'&orderby=CITYFROM&limit=10
+*   /sap/bc/zzjq?table=ZTJQ0003&limit=100
 *
 * 参数说明:
 *   - table  (必需): 表名,如 SPFLI, ZTJQ0003, MARA 等
@@ -78,20 +78,24 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
   *&---------------------------------------------------------------------*
   METHOD if_http_extension~handle_request.
 
-    DATA:
-      lv_table     TYPE tabname,              " 动态表名
-      lv_fields    TYPE string,               " 字段列表(逗号分隔)
-      lv_where     TYPE string,               " WHERE条件
-      lv_orderby   TYPE string,               " ORDER BY字段
-      lv_limit     TYPE i,                    " 返回行数
-      lv_offset    TYPE i,                    " 偏移量
-      lv_json      TYPE string,               " JSON响应
-      lv_error     TYPE string,
-      ls_error     TYPE ty_error.
+    " 定义变量 (不使用内联声明,兼容ECC 6.0)
+    DATA: lv_table     TYPE tabname.            " 动态表名
+    DATA: lv_fields    TYPE string.             " 字段列表(逗号分隔)
+    DATA: lv_where     TYPE string.             " WHERE条件
+    DATA: lv_orderby   TYPE string.             " ORDER BY字段
+    DATA: lv_limit     TYPE i.                  " 返回行数
+    DATA: lv_offset    TYPE i.                  " 偏移量
+    DATA: lv_json      TYPE string.             " JSON响应
+    DATA: lv_error     TYPE string.
+    DATA: ls_error     TYPE ty_error.
+    DATA: lo_data      TYPE REF TO data.
+    DATA: lv_select    TYPE string.
+    DATA: lv_count     TYPE i.
+    DATA: lx_table_err TYPE REF TO cx_dynamic_check.
+    DATA: lx_field_err TYPE REF TO cx_dynamic_check.
+    DATA: lx_where_err TYPE REF TO cx_dynamic_check.
+    DATA: lx_query_err TYPE REF TO cx_dynamic_check.
 
-    DATA: lo_data TYPE REF TO data.
-    DATA: lv_select TYPE string.
-    DATA: lv_count TYPE i.
     FIELD-SYMBOLS: <lt_data> TYPE ANY TABLE.
 
     "----------------------------------------------------------------------
@@ -123,7 +127,7 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
     " 验证表名安全性
     TRY.
         validate_table_name( lv_table ).
-      CATCH cx_dynamic_check INTO DATA(lx_table_err).
+      CATCH cx_dynamic_check INTO lx_table_err.
         ls_error-code = 'INVALID_TABLE'.
         ls_error-message = lx_table_err->get_text( ).
         lv_json = /ui2/cl_json=>serialize( data = ls_error ).
@@ -145,8 +149,6 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
     " 解析OFFSET
     IF lv_offset IS INITIAL.
       lv_offset = 0.
-    ELSE.
-      lv_offset = lv_offset.
     ENDIF.
 
     "----------------------------------------------------------------------
@@ -158,7 +160,7 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
       " 验证字段是否存在
       TRY.
           validate_fields( iv_table = lv_table iv_fields = lv_fields ).
-        CATCH cx_dynamic_check INTO DATA(lx_field_err).
+        CATCH cx_dynamic_check INTO lx_field_err.
           ls_error-code = 'INVALID_FIELDS'.
           ls_error-message = lx_field_err->get_text( ).
           lv_json = /ui2/cl_json=>serialize( data = ls_error ).
@@ -178,7 +180,7 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
           parse_where_clause(
             EXPORTING iv_where = lv_where
             IMPORTING ev_where = lv_where ).
-        CATCH cx_dynamic_check INTO DATA(lx_where_err).
+        CATCH cx_dynamic_check INTO lx_where_err.
           ls_error-code = 'INVALID_WHERE'.
           ls_error-message = lx_where_err->get_text( ).
           lv_json = /ui2/cl_json=>serialize( data = ls_error ).
@@ -197,7 +199,7 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
     ENDIF.
 
     "----------------------------------------------------------------------
-    " 7. 执行动态查询
+    " 7. 执行动态查询 (无@语法,兼容ECC)
     "----------------------------------------------------------------------
     TRY.
         " 创建动态内表
@@ -245,7 +247,7 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
             ORDER BY (lv_orderby).
         ENDIF.
 
-      CATCH cx_dynamic_check INTO DATA(lx_query_err).
+      CATCH cx_dynamic_check INTO lx_query_err.
         ls_error-code = 'QUERY_ERROR'.
         ls_error-message = lx_query_err->get_text( ).
         lv_json = /ui2/cl_json=>serialize( data = ls_error ).
@@ -256,7 +258,7 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
     ENDTRY.
 
     "----------------------------------------------------------------------
-    " 8. 返回JSON响应
+    " 8. 返回JSON响应 (abap_true改为'X',兼容ECC)
     "----------------------------------------------------------------------
     " 获取实际返回行数
     DESCRIBE TABLE <lt_data> LINES lv_count.
@@ -273,7 +275,7 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
 
     lv_json = /ui2/cl_json=>serialize(
       data        = ls_response
-      compress    = abap_true
+      compress    = 'X'                         " 使用'X'替代abap_true
       pretty_name = /ui2/cl_json=>pretty_mode-low_case ).
 
     server->response->set_content_type( `application/json; charset=utf-8` ).
