@@ -1,102 +1,114 @@
-*  method IF_HTTP_EXTENSION~HANDLE_REQUEST.
-*  endmethod.
-
-*  METHOD if_http_extension~handle_request.
+*&---------------------------------------------------------------------*
+*& 程序: ZJQR_DATA_QUERY
+*& 名称: 动态表查询 ICF Handler (ECC兼容版)
+*& 功能: 通过REST API动态查询SAP表数据
+*& 作者: AI Assistant
+*& 日期: 2026-03-30
+*& 版本: 1.0
+*& 说明: 兼容SAP ECC 6.0版本,使用标准ABAP动态SQL
+*&---------------------------------------------------------------------*
 *
-*    SELECT *
-*           FROM spfli
-*           WHERE carrid = @( to_upper(
-*             cl_abap_dyn_prg=>escape_quotes(
-*               val = escape( val = server->request->get_form_field(
-*                                                      name = `carrid` )
-*                             format = cl_abap_format=>e_xss_ml ) ) ) )
-*           INTO TABLE @DATA(connections) ##no_text.
+* 使用示例:
+*   /sap/bc/rest/zjqr_data?table=SPFLI&limit=3
+*   /sap/bc/rest/zjqr_data?table=MARA&limit=10
 *
-*    "cl_demo_output=>get converts ABAP data to HTML and is secure
-*    server->response->set_cdata(
-*      data = cl_demo_output=>get( connections ) ).
+* 参数说明:
+*   table (必需): 表名
+*   limit (可选): 返回行数,默认10
 *
-*  ENDMETHOD.
+*&---------------------------------------------------------------------*
 
+METHOD if_http_extension~handle_request.
 
-  METHOD if_http_extension~handle_request.
+  "----------------------------------------------------------------------"
+  " 定义变量
+  "----------------------------------------------------------------------"
+  DATA:
+    lv_table    TYPE tabname,               " 动态表名
+    lv_limit    TYPE i,                     " 返回行数
+    lv_json     TYPE string,                " JSON响应
+    lv_error    TYPE string,                " 错误信息
+    lo_data     TYPE REF TO data.           " 动态数据引用
 
+  FIELD-SYMBOLS:
+    <lt_data>   TYPE ANY TABLE.             " 动态内表
 
-*CALL FUNCTION 'RFC_READ_TABLE'
-*  EXPORTING
-*    query_table                = server->request->get_form_field(
-*                                                      name = `carrid` )
-**   DELIMITER                  = ' '
-**   NO_DATA                    = ' '
-**   ROWSKIPS                   = 0
-*   ROWCOUNT                   = 3
-*  tables
-**    options                    =
-**    fields                     =
-*    data                       = DATA(connections)
-** EXCEPTIONS
-**   TABLE_NOT_AVAILABLE        = 1
-**   TABLE_WITHOUT_DATA         = 2
-**   OPTION_NOT_VALID           = 3
-**   FIELD_NOT_VALID            = 4
-**   NOT_AUTHORIZED             = 5
-**   DATA_BUFFER_EXCEEDED       = 6
-**   OTHERS                     = 7
-*          .
-*IF sy-subrc <> 0.
-** Implement suitable error handling here
-*ENDIF.
-
-
-*    SELECT *
-*           FROM spfli
-*           WHERE carrid = @( to_upper(
-*             cl_abap_dyn_prg=>escape_quotes(
-*               val = escape( val = server->request->get_form_field(
-*                                                      name = `carrid` )
-*                             format = cl_abap_format=>e_xss_ml ) ) ) )
-*           INTO TABLE @DATA(connections) ##no_text.
-FIELD-SYMBOLS: <dyn_table> TYPE ANY TABLE.
-
-DATA:
-    lv_table     TYPE tabname,        " 动态表名
-    lv_carrid    TYPE string,         " 查询参数
-    lt_data      TYPE REF TO data,    " 动态内表对象
-    lv_json      TYPE string.
-
+  "----------------------------------------------------------------------"
   " 1. 获取请求参数
+  "----------------------------------------------------------------------"
   lv_table = server->request->get_form_field( name = `table` ).
-  TRANSLATE lv_table TO UPPER CASE. " SAP表名必须大写
-  lv_carrid = server->request->get_form_field( name = `carrid` ).
+  lv_limit = server->request->get_form_field( name = `limit` ).
 
-  " 2. 【核心修复】创建动态内表 + 定义标准内表字段符号
-  CREATE DATA lt_data TYPE STANDARD TABLE OF (lv_table).
-  ASSIGN lt_data->* TO <dyn_table>.
+  " SAP表名必须大写
+  TRANSLATE lv_table TO UPPER CASE.
 
-  " 3. 【修复语法】动态SELECT（解决「不是内部表」错误）
+  " 参数验证
+  IF lv_table IS INITIAL.
+    lv_json = `{"error":"Table parameter is required"}`.
+    server->response->set_content_type( `application/json; charset=utf-8` ).
+    server->response->set_status( code = 400 reason = 'Bad Request' ).
+    server->response->set_cdata( lv_json ).
+    RETURN.
+  ENDIF.
+
+  " 验证表名格式(简单检查)
+  IF lv_table CN 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'.
+    lv_json = `{"error":"Invalid table name"}`.
+    server->response->set_content_type( `application/json; charset=utf-8` ).
+    server->response->set_status( code = 400 reason = 'Bad Request' ).
+    server->response->set_cdata( lv_json ).
+    RETURN.
+  ENDIF.
+
+  " 限制返回行数
+  IF lv_limit IS INITIAL OR lv_limit <= 0.
+    lv_limit = 10.
+  ELSEIF lv_limit > 1000.
+    lv_limit = 1000.
+  ENDIF.
+
+  "----------------------------------------------------------------------"
+  " 2. 创建动态内表
+  "----------------------------------------------------------------------"
   TRY.
-      " 严格使用ABAP标准动态查询语法
-      SELECT *
-        FROM (lv_table)
-        UP TO 3 ROWS
-*       WHERE carrid = @( to_upper(
-*             cl_abap_dyn_prg=>escape_quotes(
-*               val = escape( val = lv_carrid
-*                             format = cl_abap_format=>e_xss_ml ) ) ) )
-       INTO TABLE @<dyn_table>. " 关键：加 @ 符号
+      CREATE DATA lo_data TYPE STANDARD TABLE OF (lv_table).
+      ASSIGN lo_data->* TO <lt_data>.
 
-    CATCH cx_root INTO DATA(lx_err).
-      server->response->set_cdata( `错误：` && lx_err->get_text( ) ).
+    " 捕获动态创建错误
+    CATCH cx_dynamic_check.
+      lv_json = |{"error":"Invalid table name: { lv_table }"|.
+      server->response->set_content_type( `application/json; charset=utf-8` ).
+      server->response->set_status( code = 400 reason = 'Bad Request' ).
+      server->response->set_cdata( lv_json ).
       RETURN.
   ENDTRY.
 
-  " 4. 返回结果（REST接口推荐JSON格式）
-  lv_json = /ui2/cl_json=>serialize( data = <dyn_table> compress = abap_true ).
+  "----------------------------------------------------------------------"
+  " 3. 执行动态查询
+  "----------------------------------------------------------------------"
+  TRY.
+      SELECT *
+        FROM (lv_table)
+        UP TO @lv_limit ROWS
+        INTO TABLE @<lt_data>.
+
+    CATCH cx_dynamic_check INTO DATA(lx_err).
+      lv_json = |{"error":"Query failed: { lx_err->get_text( ) }"|.
+      server->response->set_content_type( `application/json; charset=utf-8` ).
+      server->response->set_status( code = 500 reason = 'Internal Server Error' ).
+      server->response->set_cdata( lv_json ).
+      RETURN.
+  ENDTRY.
+
+  "----------------------------------------------------------------------"
+  " 4. 返回JSON响应
+  "----------------------------------------------------------------------"
+  " 使用 /ui2/cl_json (ECC和S/4都可用)
+  lv_json = /ui2/cl_json=>serialize(
+    data     = <lt_data>
+    compress = abap_true ).
+
   server->response->set_content_type( `application/json; charset=utf-8` ).
   server->response->set_cdata( lv_json ).
 
-*    "cl_demo_output=>get converts ABAP data to HTML and is secure
-*    server->response->set_cdata(
-*      data = cl_demo_output=>get( <dyn_table> ) ).
-
-  ENDMETHOD.
+ENDMETHOD.
