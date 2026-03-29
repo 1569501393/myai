@@ -25,7 +25,7 @@ cp .env.example .env
 | 参数 | 说明 | 示例 |
 |------|------|------|
 | SAP_USER | SAP 用户名 | U1170 |
-| SAP_PASSWORD | SAP 密码 | your_password |
+| SAP_PASSWORD | SAP 密码 | hysoft888999 |
 | SAP_CLIENT | SAP 客户端 | 400 |
 | SAP_LANG | 语言 | ZH / EN |
 | SAP_HOST | SAP 服务器地址 | mysap.goodsap.cn |
@@ -68,6 +68,150 @@ table_result = conn.get_table_data("MARA", rows=10)
 if "data" in table_result:
     print(f"记录数: {len(table_result['data'])}")
 ```
+
+## OpenCode 使用提示词
+
+### 提示词示例
+
+以下是常用的 OpenCode/AI 提示词，可以直接复制使用：
+
+---
+
+#### 1. 获取表数据
+
+**提示词：**
+```
+使用 ai4sap skill 获取 ZTJQ0003 表的前10条数据并分析
+```
+
+**返回结果：**
+```json
+{
+  "data": [
+    {"MANDT": "400", "SID": 5, "NAME": "555", "SEX": "1", "TEST_OPENCODE": "A", "REMAMRK": "555"},
+    {"MANDT": "400", "SID": 1, "NAME": "jieqiang", "SEX": "1", "TEST_OPENCODE": "A", "REMAMRK": "JIEQIANG"},
+    {"MANDT": "400", "SID": 2, "NAME": "张三", "SEX": "1", "TEST_OPENCODE": "B", "REMAMRK": "张三"},
+    {"MANDT": "400", "SID": 3, "NAME": "333", "SEX": "1", "TEST_OPENCODE": "C", "REMAMRK": "333"}
+  ]
+}
+```
+
+---
+
+#### 2. 获取程序源码
+
+**提示词：**
+```
+使用 ai4sap skill 获取 ZJQR0000 源码，并分析程序结构
+```
+
+**返回结果：**
+```abap
+=== 程序基本信息 ===
+类型: PROG
+名称: ZJQR0000
+源码长度: 506 字符
+INCLUDE数量: 1
+INCLUDE列表: ['ZJQR0000_FRM']
+
+=== 源码内容 ===
+REPORT zjqr0000.
+
+INITIALIZATION.
+  INCLUDE zjqr0000_frm.
+
+START-OF-SELECTION.
+  DATA: a TYPE i.
+  DATA: b TYPE i.
+  DATA: c TYPE i.
+  a = 1.
+  b = 2.
+
+  PERFORM frm_add_num USING a b CHANGING c.
+  WRITE:/ 'c: ', c.
+
+  PERFORM frm_write_hello.
+```
+
+---
+
+#### 3. 获取 INCLUDE 源码
+
+**提示词：**
+```
+使用 ai4sap skill 获取 ZJQR0000_FRM INCLUDE 的源码并分析
+```
+
+**返回结果：**
+```abap
+=== INCLUDE ZJQR0000_FRM ===
+源码长度: 1202 字符
+
+FORM frm_add_num USING p_a p_b CHANGING p_c.
+  p_c = p_a + p_b.
+ENDFORM.
+
+FORM frm_write_hello.
+  WRITE:/ 'hello, abap'.
+ENDFORM.
+```
+
+---
+
+#### 4. 获取类源码
+
+**提示词：**
+```
+使用 ai4sap skill 获取 ZCL_TEST 类的源码并分析
+```
+
+**返回结果：**
+```abap
+=== CLASS ZCL_TEST ===
+源码长度: 2530 字符
+
+CLASS zcl_test DEFINITION.
+  PUBLIC SECTION.
+    METHODS: constructor,
+             get_data RETURNING VALUE(rv_data) TYPE string.
+  PRIVATE SECTION.
+    DATA: mv_data TYPE string.
+ENDCLASS.
+
+CLASS zcl_test IMPLEMENTATION.
+  METHOD constructor.
+    mv_data = 'Hello World'.
+  ENDMETHOD.
+
+  METHOD get_data.
+    rv_data = mv_data.
+  ENDMETHOD.
+ENDCLASS.
+```
+
+---
+
+#### 5. 获取表结构
+
+**提示词：**
+```
+使用 ai4sap skill 获取 MARA 表的结构信息
+```
+
+---
+
+#### 6. 综合分析
+
+**提示词：**
+```
+使用 ai4sap skill 完成以下任务：
+1. 获取 ZJQR0000 程序源码
+2. 获取其包含的 INCLUDE 源码
+3. 获取 ZTJQ0003 表的前10条数据
+4. 分析程序结构和表数据
+```
+
+---
 
 ## API 参考
 
@@ -145,7 +289,11 @@ text_symbols = conn.get_text_symbols("ZJQR0000")
 output/
 ├── ZJQR0000_prog.json      # 程序 JSON 元数据
 ├── ZJQR0000_prog.src       # 程序源码
-├── mara_table_data.json    # 表数据
+├── ZJQR0000_FRM_include.json
+├── ZJQR0000_FRM_include.src
+├── ZCL_TEST_class.json
+├── ZCL_TEST_class.src
+├── mara_table_data.json
 └── ...
 ```
 
