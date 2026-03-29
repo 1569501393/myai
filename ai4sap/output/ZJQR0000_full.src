@@ -1,0 +1,22 @@
+*&---------------------------------------------------------------------*
+*& Report ZJQR0000
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zjqr0000.
+
+INITIALIZATION.
+  INCLUDE zjqr0000_frm.
+
+START-OF-SELECTION.
+
+  DATA: a TYPE i.
+  DATA: b TYPE i.
+  DATA: c TYPE i.
+  a = 1.
+  b = 2.
+
+  PERFORM frm_add_num USING a b CHANGING c.
+  WRITE:/ 'c: ', c.
+
+  PERFORM frm_write_hello.
