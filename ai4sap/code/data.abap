@@ -50,9 +50,18 @@ METHOD if_http_extension~handle_request.
     RETURN.
   ENDIF.
 
-  " 参数验证 - 表名格式
+  " 参数验证 - 表名格式 (只检查是否包含非法字符)
   IF lv_table CN 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'.
-    lv_json = `{"error":"Invalid table name"}`.
+    lv_json = `{"error":"Table name contains invalid characters"}`.
+    server->response->set_content_type( `application/json; charset=utf-8` ).
+    server->response->set_status( code = 400 reason = 'Bad Request' ).
+    server->response->set_cdata( lv_json ).
+    RETURN.
+  ENDIF.
+
+  " 检查表名长度 (最大16字符)
+  IF strlen( lv_table ) > 16.
+    lv_json = `{"error":"Table name too long (max 16 characters)"}`.
     server->response->set_content_type( `application/json; charset=utf-8` ).
     server->response->set_status( code = 400 reason = 'Bad Request' ).
     server->response->set_cdata( lv_json ).
@@ -73,10 +82,10 @@ METHOD if_http_extension~handle_request.
       CREATE DATA lo_data TYPE STANDARD TABLE OF (lv_table).
       ASSIGN lo_data->* TO <lt_data>.
 
-    " 捕获动态创建错误
+    " 捕获动态创建错误 (可能是表不存在或字段结构问题)
     CATCH cx_dynamic_check INTO lx_err.
       lv_error = lx_err->get_text( ).
-      CONCATENATE '{"error":"Invalid table name: ' lv_table '"}' INTO lv_json.
+      CONCATENATE '{"error":"Table or fields error: ' lv_error '"}' INTO lv_json.
       server->response->set_content_type( `application/json; charset=utf-8` ).
       server->response->set_status( code = 400 reason = 'Bad Request' ).
       server->response->set_cdata( lv_json ).
