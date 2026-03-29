@@ -4,8 +4,8 @@
 *& 功能: 通过REST API动态查询SAP表数据
 *& 作者: AI Assistant
 *& 日期: 2026-03-30
-*& 版本: 1.0
-*& 说明: 兼容SAP ECC 6.0版本,使用标准ABAP动态SQL
+*& 版本: 1.1
+*& 说明: 兼容SAP ECC 6.0版本 (无@语法,无字符串模板表达式)
 *&---------------------------------------------------------------------*
 *
 * 使用示例:
@@ -76,7 +76,7 @@ METHOD if_http_extension~handle_request.
 
     " 捕获动态创建错误
     CATCH cx_dynamic_check.
-      lv_json = |{"error":"Invalid table name: { lv_table }"|.
+      CONCATENATE '{"error":"Invalid table name: ' lv_table '"}' INTO lv_json.
       server->response->set_content_type( `application/json; charset=utf-8` ).
       server->response->set_status( code = 400 reason = 'Bad Request' ).
       server->response->set_cdata( lv_json ).
@@ -87,13 +87,15 @@ METHOD if_http_extension~handle_request.
   " 3. 执行动态查询
   "----------------------------------------------------------------------"
   TRY.
+      " 使用旧版ABAP语法 (无@符号) - 兼容ECC 6.0
       SELECT *
         FROM (lv_table)
-        UP TO @lv_limit ROWS
-        INTO TABLE @<lt_data>.
+        UP TO lv_limit ROWS
+        INTO CORRESPONDING FIELDS OF TABLE <lt_data>.
 
     CATCH cx_dynamic_check INTO DATA(lx_err).
-      lv_json = |{"error":"Query failed: { lx_err->get_text( ) }"|.
+      lv_error = lx_err->get_text( ).
+      CONCATENATE '{"error":"Query failed: ' lv_error '"}' INTO lv_json.
       server->response->set_content_type( `application/json; charset=utf-8` ).
       server->response->set_status( code = 500 reason = 'Internal Server Error' ).
       server->response->set_cdata( lv_json ).

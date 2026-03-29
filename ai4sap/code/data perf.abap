@@ -3,10 +3,12 @@
 *& 功能: 通过REST API动态查询任意SAP表数据
 *& 作者: AI Assistant
 *& 日期: 2026-03-30
+*& 版本: 1.1
+*& 说明: 兼容SAP ECC 6.0版本 (无@语法,无字符串模板表达式)
 *&---------------------------------------------------------------------*
 *
 * 使用示例:
-*   /sap/bc/rest/z_dynamic_query?table=SPFLI&fields=CARRID,CONNID,CITYFROM,CITYTO&where=CARRID='AA'&orderby=CITYFROM&limit=10
+*   /sap/bc/rest/z_dynamic_query?table=SPFLI&fields=CARRID,CONNID&where=CARRID='AA'&orderby=CITYFROM&limit=10
 *   /sap/bc/rest/z_dynamic_query?table=ZTJQ0003&limit=100
 *
 * 参数说明:
@@ -88,6 +90,8 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
       ls_error     TYPE ty_error.
 
     DATA: lo_data TYPE REF TO data.
+    DATA: lv_select TYPE string.
+    DATA: lv_count TYPE i.
     FIELD-SYMBOLS: <lt_data> TYPE ANY TABLE.
 
     "----------------------------------------------------------------------
@@ -142,7 +146,7 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
     IF lv_offset IS INITIAL.
       lv_offset = 0.
     ELSE.
-      lv_offset = CONV i( lv_offset ).
+      lv_offset = lv_offset.
     ENDIF.
 
     "----------------------------------------------------------------------
@@ -200,37 +204,44 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
         CREATE DATA lo_data TYPE STANDARD TABLE OF (lv_table).
         ASSIGN lo_data->* TO <lt_data>.
 
-        " 构建动态SELECT语句
-        DATA(lv_select) = CONDITION #( WHEN lv_fields IS INITIAL THEN '*' ELSE lv_fields ).
+        " 构建动态SELECT字段列表 (兼容ECC: 使用IF代替CONDITION#)
+        IF lv_fields IS INITIAL.
+          lv_select = '*'.
+        ELSE.
+          lv_select = lv_fields.
+        ENDIF.
 
-        " 使用ABAP动态SQL
+        " 使用旧版ABAP动态SQL语法 (无@符号) - 兼容ECC 6.0
         IF lv_where IS INITIAL AND lv_orderby IS INITIAL.
           " 简单查询
           SELECT (lv_select)
             FROM (lv_table)
-            INTO TABLE @<lt_data>
-            UP TO @lv_limit ROWS.
+            UP TO lv_limit ROWS
+            INTO CORRESPONDING FIELDS OF TABLE <lt_data>.
+
         ELSEIF lv_where IS NOT INITIAL AND lv_orderby IS INITIAL.
           " 带WHERE条件
           SELECT (lv_select)
             FROM (lv_table)
             WHERE (lv_where)
-            INTO TABLE @<lt_data>
-            UP TO @lv_limit ROWS.
+            UP TO lv_limit ROWS
+            INTO CORRESPONDING FIELDS OF TABLE <lt_data>.
+
         ELSEIF lv_where IS INITIAL AND lv_orderby IS NOT INITIAL.
           " 带ORDER BY
           SELECT (lv_select)
             FROM (lv_table)
-            INTO TABLE @<lt_data>
-            UP TO @lv_limit ROWS
+            UP TO lv_limit ROWS
+            INTO CORRESPONDING FIELDS OF TABLE <lt_data>
             ORDER BY (lv_orderby).
+
         ELSE.
           " 带WHERE和ORDER BY
           SELECT (lv_select)
             FROM (lv_table)
             WHERE (lv_where)
-            INTO TABLE @<lt_data>
-            UP TO @lv_limit ROWS
+            UP TO lv_limit ROWS
+            INTO CORRESPONDING FIELDS OF TABLE <lt_data>
             ORDER BY (lv_orderby).
         ENDIF.
 
@@ -248,7 +259,7 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
     " 8. 返回JSON响应
     "----------------------------------------------------------------------
     " 获取实际返回行数
-    DATA(lv_count) = lines( <lt_data> ).
+    DESCRIBE TABLE <lt_data> LINES lv_count.
 
     " 构建响应结构
     DATA: BEGIN OF ls_response,
@@ -276,6 +287,8 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
   *&  描述: 验证表名是否存在于SAP系统中
   *&---------------------------------------------------------------------*
   METHOD validate_table_name.
+    DATA: lv_exists(1) TYPE c.
+
     " 检查表名格式(必须以字母开头,最长16位)
     IF iv_table IS INITIAL OR strlen( iv_table ) > 16.
       RAISE EXCEPTION TYPE cx_dynamic_check
@@ -294,17 +307,17 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
         EXPORTING text = 'Invalid table name: only allow A-Z, 0-9, _'.
     ENDIF.
 
-    " 验证表在SAP DDIC中存在
-    SELECT SINGLE @abap_true
+    " 验证表在SAP DDIC中存在 (兼容ECC: 不用@语法)
+    SELECT SINGLE 'X'
       FROM dd02l
-      WHERE tabname = @iv_table
-        AND as4local = @abap_true
+      WHERE tabname = iv_table
+        AND as4local = 'A'
         AND tabclass = 'TRANSP'
-      INTO @DATA(lv_exists).
+      INTO lv_exists.
 
-    IF lv_exists = @abap_false.
+    IF lv_exists IS INITIAL.
       RAISE EXCEPTION TYPE cx_dynamic_check
-        EXPORTING text = |Table { iv_table } does not exist in SAP DDIC|.
+        EXPORTING text = 'Table does not exist in SAP DDIC'.
     ENDIF.
   ENDMETHOD.
 
@@ -314,8 +327,9 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
   *&  描述: 验证字段列表是否属于指定表
   *&---------------------------------------------------------------------*
   METHOD validate_fields.
-    DATA: lt_fields TYPE STANDARD TABLE OF string,
-          lv_field  TYPE string.
+    DATA: lt_fields TYPE STANDARD TABLE OF string.
+    DATA: lv_field TYPE string.
+    DATA: lv_field_exists(1) TYPE c.
 
     " 分割字段列表
     SPLIT iv_fields AT ',' INTO TABLE lt_fields.
@@ -330,16 +344,16 @@ CLASS zcl_dynamic_query IMPLEMENTATION.
     LOOP AT lt_fields INTO lv_field.
       CONDENSE lv_field.
 
-      " 检查字段在表中是否存在
-      SELECT SINGLE @abap_true
+      " 检查字段在表中是否存在 (兼容ECC: 不用@语法)
+      SELECT SINGLE 'X'
         FROM dd03l
-        WHERE tabname = @iv_table
-          AND fieldname = @lv_field
-        INTO @DATA(lv_field_exists).
+        WHERE tabname = iv_table
+          AND fieldname = lv_field
+        INTO lv_field_exists.
 
-      IF lv_field_exists = @abap_false.
+      IF lv_field_exists IS INITIAL.
         RAISE EXCEPTION TYPE cx_dynamic_check
-          EXPORTING text = |Field { lv_field } does not exist in table { iv_table }|.
+          EXPORTING text = 'Field does not exist in table'.
       ENDIF.
     ENDLOOP.
   ENDMETHOD.
