@@ -366,53 +366,21 @@ class SAPConnector:
     
     def get_table_data(self, table_name: str, rows: Optional[int] = None) -> Dict[str, Any]:
         """
-        Fetch table data via custom endpoint.
+        [DEPRECATED] Table data retrieval has been moved to a separate skill.
+        This method is kept for backward compatibility only.
         
         Args:
             table_name: Name of the SAP table
             rows: Optional maximum number of rows to return
             
         Returns:
-            Dictionary containing table data or error information
+            Deprecation notice
         """
-        path = "/sap/bc/zzjq"
-        params = {
-            "sap-client": self.client,
-            "table": table_name
+        return {
+            "error": "Table data retrieval is no longer supported in this skill",
+            "note": "Please use the table analysis skill for data retrieval",
+            "supported_object_types": list(SUPPORTED_OBJECT_TYPES.keys())
         }
-        
-        # Add rows parameter if specified
-        if rows is not None and rows > 0:
-            params["rows"] = rows
-        
-        response = self._make_request(
-            "GET", path,
-            headers=self._get_headers("application/json"),
-            params=params
-        )
-        
-        if response.status_code == 200:
-            try:
-                return {"data": response.json()}
-            except json.JSONDecodeError:
-                return {
-                    "data": response.text,
-                    "note": "Response is not valid JSON",
-                    "content_type": response.headers.get("content-type", "unknown")
-                }
-        elif response.status_code == 401:
-            return {"error": "Authentication failed", "status": 401}
-        elif response.status_code == 404:
-            return {
-                "error": f"Endpoint or table {table_name} not found",
-                "status": 404,
-                "suggestion": "Check if the custom endpoint /sap/bc/zzjq is available"
-            }
-        else:
-            return {
-                "error": f"HTTP {response.status_code}",
-                "detail": response.text[:500]
-            }
     
     def save_results(self, result: Dict[str, Any], filename: str) -> Path:
         """
@@ -554,25 +522,6 @@ def main() -> None:
     for obj_name, result in results.items():
         status = "SUCCESS" if "source" in result else f"FAILED: {result.get('error', 'Unknown')}"
         print(f"  {result['type']}/{obj_name}: {status}")
-    
-    # Test table data retrieval via custom endpoint
-    print("\n[Table] Retrieving MARA data via custom endpoint /sap/bc/zzjq...")
-    table_result = conn.get_table_data("MARA", rows=3)
-    table_output = conn.save_results(table_result, "mara_table_data.json")
-    print(f"Saved to: {table_output}")
-    
-    if "data" in table_result:
-        data = table_result["data"]
-        if isinstance(data, dict):
-            print(f"SUCCESS: Retrieved MARA data (JSON) with keys: {list(data.keys())}")
-        elif isinstance(data, list):
-            print(f"SUCCESS: Retrieved MARA data (list format) with {len(data)} records")
-            if len(data) > 0 and isinstance(data[0], dict):
-                print(f"Record fields: {list(data[0].keys())}")
-        else:
-            print(f"SUCCESS: Retrieved MARA data (type: {type(data)}, length: {len(str(data))} characters)")
-    else:
-        print(f"ERROR: {table_result.get('error', 'Unknown error')}")
     
     print("=" * 60)
 

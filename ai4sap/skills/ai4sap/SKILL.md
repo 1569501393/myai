@@ -1,144 +1,122 @@
 ---
 name: ai4sap
-description: 简单易用的SAP REST API集成技能 - 连接SAP系统获取源码和表数据
+description: SAP ADT REST API 源码集成技能 - 通过ABAP Development Tools接口获取SAP程序源码、类、Include等开发对象的源代码
 ---
 
 # AI4SAP 技能
 
-这是一个简单易用的SAP REST API集成技能。通过配置文件即可连接SAP系统，获取程序源码和表数据。
+## 技能概述
 
-## 什么时候使用这个技能
+AI4SAP 提供了一套完整的 SAP ADT (ABAP Development Tools) REST API 集成解决方案。本技能专注于 SAP 开发对象源码的检索与分析，支持程序、类、Include、域、数据元素、表结构等对象的源码获取。
 
-当你需要：
-- 连接SAP系统读取程序源码
-- 获取SAP表的数据和结构
-- 分析SAP程序内容
-- 不用写代码就能查询SAP数据
+## 适用场景
 
-## 快速开始
+- 检索 SAP 程序源代码
+- 获取 ABAP 类实现
+- 分析 Include 程序依赖关系
+- 提取文本符号和程序结构
+- 批量搜索 SAP 开发对象
 
-### 第一步：安装依赖
+## 核心功能
+
+### 支持的对象类型
+
+| 对象类型 | 说明 | API 端点 |
+|---------|------|---------|
+| PROG | ABAP 程序 | /sap/bc/adt/programs/programs |
+| INCLUDE | Include 程序 | /sap/bc/adt/programs/includes |
+| CLASS | ABAP 类 | /sap/bc/adt/oo/classes |
+| TABL | 数据表结构 | /sap/bc/adt/ddic/tables |
+| VIEW | 视图结构 | /sap/bc/adt/ddic/views |
+| DOMAIN | 域定义 | /sap/bc/adt/ddic/domains |
+| DTEL | 数据元素 | /sap/bc/adt/ddic/dtel |
+
+### 主要功能
+
+1. **源码检索** - 获取任意 SAP 开发对象的源代码
+2. **依赖分析** - 自动提取程序包含的 Include 列表
+3. **结构解析** - 提取文本符号、类方法等元素
+4. **对象搜索** - 按名称模式搜索 SAP 对象
+
+## 配置说明
+
+### 环境依赖
 
 ```bash
 pip install requests python-dotenv
 ```
 
-### 第二步：配置连接信息
+### 配置文件
 
-1. 复制 `.env.example` 文件为 `.env`
+复制 `.env.example` 为 `.env` 并配置以下参数：
 
-2. 用记事本或编辑器打开 `.env`，填入你的SAP连接信息：
+| 参数 | 必填 | 说明 | 示例 |
+|------|-----|------|------|
+| SAP_USER | 是 | SAP 用户名 | U1170 |
+| SAP_PASSWORD | 是 | SAP 密码 | ****** |
+| SAP_CLIENT | 是 | SAP 客户端 | 400 |
+| SAP_LANG | 否 | 语言 | ZH |
+| SAP_HOST | 是 | SAP 服务器地址 | mysap.goodsap.cn |
+| SAP_PORT | 是 | 服务端口 | 50400 |
+| SAP_PROTOCOL | 否 | 协议 | http |
 
-```
-SAP_USER=你的用户名
-SAP_PASSWORD=你的密码
-SAP_CLIENT=400
-SAP_LANG=ZH
-SAP_HOST=你的SAP服务器地址
-SAP_PORT=端口号
-SAP_PROTOCOL=http
-```
+## 使用示例
 
-**填写示例：**
-```
-SAP_USER=U1170
-SAP_PASSWORD=hysoft888999
-SAP_CLIENT=400
-SAP_LANG=ZH
-SAP_HOST=mysap.goodsap.cn
-SAP_PORT=50400
-SAP_PROTOCOL=http
-```
-
-### 第三步：运行示例
-
-```bash
-cd skills/ai4sap
-python sap_connector.py
-```
-
-这个脚本会：
-1. 自动读取 `.env` 配置
-2. 连接SAP系统
-3. 获取示例程序源码
-4. 保存结果到 `output/` 文件夹
-
-## 常用查询示例
-
-### 查询表数据
+### 基本用法
 
 ```python
 from sap_connector import SAPConnector, load_config
 
-# 加载配置并连接
+# 初始化连接
 config = load_config()
 conn = SAPConnector(config)
 
-# 查询MARA表前10条数据
-result = conn.get_table_data("MARA", rows=10)
-print(result)
-```
-
-### 查询程序源码
-
-```python
 # 获取程序源码
 result = conn.get_full_object("PROG", "ZJQR0000")
-print(result["source"])  # 打印源码
+print(result["source"])
 ```
 
-### 查询类源码
+### 获取 Include 源码
 
 ```python
-# 获取类源码
-result = conn.get_full_object("CLASS", "ZCL_TEST")
+# 获取 Include 程序源码
+include_source = conn.get_source("INCLUDE", "ZJQR0000_FRM")
 ```
 
-### 查询表结构
+### 获取类源码
 
 ```python
-# 获取表结构信息
-result = conn.get_object_info("TABL", "MARA")
+# 获取 ABAP 类源码
+class_source = conn.get_full_object("CLASS", "ZCL_TEST")
 ```
 
-## 技能文件说明
+### 提取程序元素
+
+```python
+# 获取程序包含的 Include
+includes = conn.get_includes("ZJQR0000")
+
+# 获取文本符号
+text_symbols = conn.get_text_symbols("ZJQR0000")
+```
+
+## 技能文件结构
 
 ```
 ai4sap/
-├── sap_connector.py    # 主程序（Python脚本）
-├── .env.example        # 配置模板（复制为 .env 使用）
-├── .env               # 你的配置文件（不要提交给他人！）
-└── output/            # 查询结果保存目录
+├── sap_connector.py     # 核心连接器
+├── .env.example        # 配置模板
+├── .env                # 配置文件（本地）
+├── output/             # 输出目录
+└── README.md          # 详细文档
 ```
 
-## 常见问题
+## 注意事项
 
-### 连接失败怎么办？
+1. 确保 SAP 账号具有 S_ADT_RES_URI 和 S_DEVELOPER 权限
+2. 部分老旧 SAP 系统可能不支持 ADT REST API
+3. 建议使用 HTTPS 协议确保通信安全
 
-1. 检查 `.env` 配置是否正确
-2. 确认SAP服务器地址和端口
-3. 确认用户名密码正确
-4. 检查网络是否能访问SAP服务器
+## 相关文档
 
-### 提示没有权限？
-
-联系SAP管理员，给你的账号开通ADT权限。
-
-### 结果保存在哪里？
-
-默认保存在 `output/` 文件夹，可以打开查看JSON格式的结果。
-
-## 技术支持
-
-支持的SAP对象类型：
-- PROG - 程序
-- CLASS - 类
-- INCLUDE - Include程序
-- TABL - 表
-- VIEW - 视图
-- DOMAIN - 域
-- DTEL - 数据元素
-
----
-
-*简单、稳定、实用 - 连接SAP就是这么快！*
+详细使用说明请参阅 [README.md](./README.md)
