@@ -99,7 +99,7 @@ class SAPConnector:
         source_resp = self._request("GET", source_path)
         if source_resp.status_code == 200:
             import re
-            include_pattern = r'INCLUDE\s+(\w+)'
+            include_pattern = r'INCLUDE\S+(\w+)'
             for match in re.finditer(include_pattern, source_resp.text, re.IGNORECASE):
                 inc_name = match.group(1).upper()
                 if inc_name not in includes:
@@ -182,6 +182,35 @@ class SAPConnector:
 
         return result
 
+    def get_table_data(self, table_name, rows=10):
+        """
+        Fetch table data via custom endpoint: /sap/bc/zzjq?sap-client=400&table={table_name}
+        Returns JSON data.
+        """
+        path = f"/sap/bc/zzjq"
+        params = {
+            "sap-client": self.client,
+            "table": table_name
+        }
+        # Optional: if we want to limit rows, maybe the service supports rows parameter
+        # but per user example, only table param is used. We'll add rows if needed.
+        if rows:
+            params["rows"] = rows
+
+        response = self._request("GET", path, headers=self._get_headers("application/json"), params=params)
+
+        if response.status_code == 200:
+            try:
+                return {"data": response.json()}
+            except json.JSONDecodeError:
+                return {"data": response.text, "note": "Response is not valid JSON"}
+        elif response.status_code == 401:
+            return {"error": "Authentication failed", "status": 401}
+        elif response.status_code == 404:
+            return {"error": f"Endpoint or table {table_name} not found", "status": 404}
+        else:
+            return {"error": f"HTTP {response.status_code}", "detail": response.text}
+
 
 def get_mara_data(config, days=3):
     conn = SAPConnector(config)
@@ -252,6 +281,21 @@ def main():
     for obj_name, result in results.items():
         status = "SUCCESS" if "source" in result else f"FAILED: {result.get('error', 'Unknown')}"
         print(f"  {result['type']}/{obj_name}: {status}")
+
+    # New: Test table data via custom endpoint
+    print("\n[Table] Retrieving MARA data via custom endpoint /sap/bc/zzjq...")
+    table_result = conn.get_table_data("MARA", rows=3)
+    table_output = OUTPUT_DIR / "mara_table_data.json"
+    with open(table_output, "w", encoding="utf-8") as f:
+        json.dump(table_result, f, ensure_ascii=False, indent=2)
+    print(f"Saved to: {table_output}")
+    if "data" in table_result:
+        if isinstance(table_result["data"], dict):
+            print(f"SUCCESS: Retrieved MARA data (JSON) with keys: {list(table_result['data'].keys())}")
+        else:
+            print(f"SUCCESS: Retrieved MARA data (raw text, length {len(table_result['data'])})")
+    else:
+        print(f"ERROR: {table_result.get('error', 'Unknown error')}")
 
     print("=" * 60)
 
