@@ -22,13 +22,22 @@ Example usage:
 
 import base64
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 
 import requests
-import yaml
+
+# Try to import dotenv, make it optional
+try:
+    from dotenv import load_dotenv
+    _load_dotenv = load_dotenv
+    DOTENV_AVAILABLE = True
+except ImportError:
+    _load_dotenv = None  # type: ignore
+    DOTENV_AVAILABLE = False
 
 
 # Constants
@@ -351,7 +360,7 @@ class SAPConnector:
         # Get includes for programs
         if object_type.upper() == "PROG":
             includes = self.get_includes(object_name)
-            result["includes"] = includes
+            result["includes"] = includes  # type: ignore
         
         return result
     
@@ -438,21 +447,54 @@ class SAPConnector:
         return output_file
 
 
-def load_config(config_path: Union[str, Path] = None) -> Dict[str, Any]:
+def load_config(env_path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     """
-    Load SAP configuration from YAML file.
+    Load SAP configuration from .env file.
+    
+    Configuration is read from .env file with following variables:
+    - SAP_USER: SAP username
+    - SAP_PASSWORD: SAP password
+    - SAP_CLIENT: SAP client (e.g., "400")
+    - SAP_LANG: SAP language (e.g., "ZH" or "EN")
+    - SAP_HOST: SAP host (e.g., "mysap.goodsap.cn")
+    - SAP_PORT: SAP port (e.g., "50400")
+    - SAP_PROTOCOL: SAP protocol (http or https)
     
     Args:
-        config_path: Path to configuration file (defaults to config/sap_config.yaml)
+        env_path: Path to .env file (defaults to .env in skill directory)
         
     Returns:
-        Dictionary containing configuration
+        Dictionary containing configuration compatible with SAPConnector
     """
-    if config_path is None:
-        config_path = Path(__file__).parent / "config" / "sap_config.yaml"
+    if env_path is None:
+        env_path = Path(__file__).parent / ".env"
     
-    with open(config_path, "r") as f:
-        return yaml.safe_load(f)
+    # Try to load from .env file
+    if os.path.exists(env_path) and _load_dotenv:
+        _load_dotenv(env_path)
+    
+    # Also check environment variables directly
+    config = {
+        "SAP_CONFIG": {
+            "USER": os.getenv("SAP_USER", ""),
+            "PASSWD": os.getenv("SAP_PASSWORD", ""),
+            "CLIENT": os.getenv("SAP_CLIENT", "400"),
+            "LANG": os.getenv("SAP_LANG", "ZH"),
+        },
+        "ADT_CONFIG": {
+            "BASE_URL": os.getenv("SAP_BASE_URL", ""),
+        }
+    }
+    
+    # Construct BASE_URL if not explicitly provided
+    if not config["ADT_CONFIG"]["BASE_URL"]:
+        protocol = os.getenv("SAP_PROTOCOL", "http")
+        host = os.getenv("SAP_HOST", "")
+        port = os.getenv("SAP_PORT", "")
+        if host:
+            config["ADT_CONFIG"]["BASE_URL"] = f"{protocol}://{host}:{port}"
+    
+    return config
 
 
 def main() -> None:
@@ -460,12 +502,12 @@ def main() -> None:
     Main function demonstrating SAP connector usage.
     
     This function shows how to:
-    1. Load configuration
+    1. Load configuration from .env
     2. Initialize the SAP connector
     3. Retrieve various SAP objects
     4. Save results to files
     """
-    # Load configuration
+    # Load configuration from .env
     config = load_config()
     conn = SAPConnector(config)
     
