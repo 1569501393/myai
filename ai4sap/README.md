@@ -102,6 +102,8 @@ curl -u USER:PASSWORD "https://sap-server:port/sap/bc/adt/ddic/tables/MARA/data?
 
 获取 ZJQR0000 源码
 
+获取 ZJQR0000 源码，并分析
+
 获取 ZJQR0000 源码，包括 include 文件，分析并画流程图，输出文档并提交 git
 获取 ZJQR0000_OPENCODE2 源码，包括 include 文件，分析并画流程图，输出文档并提交 git
 

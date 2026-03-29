@@ -26,12 +26,12 @@ cp .env.example .env
 
 | 参数 | 必填 | 说明 | 示例 |
 |------|-----|------|------|
-| SAP_USER | 是 | SAP 用户名 | U1170 |
-| SAP_PASSWORD | 是 | SAP 密码 | hysoft888999 |
-| SAP_CLIENT | 是 | SAP 客户端 | 400 |
+| SAP_USER | 是 | SAP 用户名 | xxx |
+| SAP_PASSWORD | 是 | SAP 密码 | xxx |
+| SAP_CLIENT | 是 | SAP 客户端 | xxx |
 | SAP_LANG | 否 | 语言 | ZH |
-| SAP_HOST | 是 | SAP 服务器地址 | mysap.goodsap.cn |
-| SAP_PORT | 是 | 服务端口 | 50400 |
+| SAP_HOST | 是 | SAP 服务器地址 | xxx |
+| SAP_PORT | 是 | 服务端口 | xxx |
 | SAP_PROTOCOL | 否 | 协议 | http / https |
 
 ## 快速开始
@@ -41,30 +41,6 @@ cp .env.example .env
 ```bash
 cd skills/ai4sap
 python sap_connector.py
-```
-
-脚本执行流程：
-1. 读取 `.env` 配置文件
-2. 建立 SAP ADT REST API 连接
-3. 获取示例程序源码（PROG、INCLUDE、CLASS）
-4. 提取程序元素（Include、文本符号）
-5. 输出结果至 `output/` 目录
-
-### Python API 调用
-
-```python
-from sap_connector import SAPConnector, load_config
-
-# 初始化连接
-config = load_config()
-conn = SAPConnector(config)
-
-# 获取程序完整信息
-result = conn.get_full_object("PROG", "ZJQR0000")
-if "source" in result:
-    print(f"源码长度: {result['source_length']} 字符")
-    print(f"包含 INCLUDE: {result.get('includes', [])}")
-    print(f"文本符号: {result.get('text_symbols', [])}")
 ```
 
 ## OpenCode 提示词模板
