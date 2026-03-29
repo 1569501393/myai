@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Example: Get source code for an SAP program using ADT REST API
+Example: Get source code for SAP objects using ADT REST API
 """
 import sys
 import os
@@ -18,15 +18,18 @@ def main():
     
     conn = SAPConnector(config)
     
-    programs = ["ZJQR0000", "ZCL_TEST"]
+    objects = [
+        ("PROG", "ZJQR0000"),
+        ("CLASS", "ZCL_TEST")
+    ]
     
-    for prog_name in programs:
-        print(f"\nFetching source for program: {prog_name}")
-        result = conn.get_full_object("PROG", prog_name)
+    for obj_type, obj_name in objects:
+        print(f"\nFetching source for {obj_type}: {obj_name}")
+        result = conn.get_full_object(obj_type, obj_name)
         
         output_dir = Path(__file__).parent.parent / "output"
         output_dir.mkdir(exist_ok=True)
-        output_file = output_dir / f"example_{prog_name}_source.json"
+        output_file = output_dir / f"example_{obj_name}_{obj_type.lower()}.json"
         
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
@@ -35,10 +38,11 @@ def main():
         
         if "source" in result:
             print(f"SUCCESS: Retrieved source code ({result['source_length']} characters)")
-            if "includes" in result:
-                print(f"Includes: {', '.join(result['includes'])}")
-            if "text_symbols" in result:
-                print(f"Text symbols found: {len(result['text_symbols'])}")
+            if obj_type.upper() in ("PROG", "INCLUDE"):
+                if "includes" in result:
+                    print(f"Includes: {', '.join(result['includes'])}")
+                if "text_symbols" in result:
+                    print(f"Text symbols found: {len(result['text_symbols'])}")
         else:
             print(f"ERROR: {result.get('error', 'Unknown error')}")
 
