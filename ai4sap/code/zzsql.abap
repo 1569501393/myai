@@ -71,11 +71,13 @@ METHOD if_http_extension~handle_request.
   DATA: lv_table TYPE tabname.
   DATA: lv_from_part TYPE string.
   DATA: lv_len TYPE i.
+  DATA: lv_offset TYPE i.
 
   " 简单解析: SELECT xxx FROM table WHERE xxx
   " 使用SEARCH命令查找FROM位置
   SEARCH lv_sql FOR ' FROM '.
-  IF sy-fdpos = 0.
+  lv_offset = sy-fdpos.
+  IF lv_offset = 0.
     lv_json = `{"error":"Invalid SQL format. Missing FROM clause"}`.
     server->response->set_content_type( `application/json; charset=utf-8` ).
     server->response->set_status( code = 400 reason = 'Bad Request' ).
@@ -84,8 +86,8 @@ METHOD if_http_extension~handle_request.
   ENDIF.
 
   " 获取FROM后面的部分
-  lv_len = strlen( lv_sql ) - sy-fdpos - 6.
-  lv_from_part = lv_sql+sy-fdpos+6(lv_len).
+  lv_len = strlen( lv_sql ) - lv_offset - 6.
+  lv_from_part = lv_sql+lv_offset+6(lv_len).
   CONDENSE lv_from_part.
 
   " 获取第一个单词(表名) - 找空格位置
