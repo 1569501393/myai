@@ -1,0 +1,534 @@
+class cl_adt_wb_res_app definition
+  public
+  create public.
+
+  public section.
+
+    interfaces if_http_extension .
+    interfaces if_oauth2_consumer.
+
+    constants:
+      co_service_path  type string value '/sap/bc/adt'  ##NO_TEXT,
+      co_service_name  type string value 'ADT_0001'     ##NO_TEXT,
+      co_session_type  type string value 'X-sap-adt-sessiontype' ##NO_TEXT,
+      co_header_adt_saplb type string value 'sap-adt-saplb' ##NO_TEXT,
+      co_header_adt_trace type string value 'X-adt-runtime-tracing' ##NO_TEXT,
+      co_header_val_true  type string value 'true' ##NO_TEXT,
+      co_header_val_fetch type string value 'fetch' ##NO_TEXT.
+    constants: co_rfc_destination_none type rfcdest value 'NONE'.
+
+    class-methods is_frontend_endpoint
+      returning value(result) type abap_bool.
+
+    class-methods check_develop_authorization
+      importing
+        uri_string type string
+      raising
+        cx_adt_res_no_authority .
+
+    class-methods check_resource_authorization
+      importing
+        uri type string
+      raising
+        cx_adt_res_no_authorization .
+
+    class-methods class_constructor.
+
+  protected section.
+    "! <p class="shorttext synchronized" lang="en">Returns destination for given alias</p>
+    "!
+    "! Returns initial value for destination <strong>NONE</strong> i.e. LOCAL.
+    "!
+    "! @parameter p_system_alias | <p class="shorttext synchronized" lang="en"></p>
+    "! @parameter result | <p class="shorttext synchronized" lang="en"></p>
+    "! @raising cx_adt_rest_routing | <p class="shorttext synchronized" lang="en"></p>
+    methods get_destination
+      importing p_system_alias type if_gw_service=>gty_system_alias
+      returning
+                value(result)  type rfcdest
+      raising
+                cx_adt_rest_routing.
+    methods get_system_aliases_configured
+      exporting
+        value(e_system_aliases) type if_gw_service=>gty_system_aliases.
+
+    methods system_alias_checkpoint
+      importing
+        p_server       type ref to if_http_server
+      exporting
+        p_path         type string
+        p_uri          type string
+        p_system_alias type if_gw_service=>gty_system_alias
+      raising
+        cx_adt_rest_routing .
+
+
+    methods service_authority_check
+      raising
+        cx_adt_rest_routing.
+
+  private section.
+    constants co_system_alias_marker type string value ';o=' ##NO_TEXT. "#EC NO_TEXT
+    constants:
+      begin of co_oauth2_consumer_tadir,
+        pgmid    type tadir-pgmid value 'R3TR',
+        object   type tadir-object value 'IWSG',
+        obj_name type tadir-obj_name value 'ADT_0001',
+      end of co_oauth2_consumer_tadir .
+    class-data g_badi_mode type ref to lcl_badi_safe_mode .
+    class-data g_develop_auth_checker type ref to lcl_develop_authority_checker .
+    class-methods fetch_system_aliases_from_gw
+      importing
+        i_uname                 type syst_uname default sy-uname
+      exporting
+        value(e_system_aliases) type if_gw_service=>gty_system_aliases.
+    "! only for unit tests
+    data m_injected_proxy_fes  type ref to lcl_abstract_request_proxy .
+    "! only for unit tests
+    data m_injected_proxy_dbg  type ref to lcl_abstract_request_proxy .
+    "! only for unit tests
+    data m_injected_proxy_trc  type ref to lcl_abstract_request_proxy .
+    "! only for unit tests
+    data m_injected_proxy_http type ref to lcl_abstract_request_proxy .
+
+    methods get_request_proxy
+      importing
+        !p_server     type ref to if_http_server
+      returning
+        value(result) type ref to lcl_abstract_request_proxy
+      raising
+        cx_adt_rest .
+    methods get_http_request_proxy
+      importing
+        !p_server     type ref to if_http_server
+      returning
+        value(result) type ref to lcl_abstract_request_proxy .
+    methods get_rfc_request_proxy_fes
+      importing
+        !p_server       type ref to if_http_server
+        !p_uri          type string
+        !p_system_alias type if_gw_service=>gty_system_alias
+        !p_path         type string
+        !p_destination  type rfcdest
+      returning
+        value(result)   type ref to lcl_abstract_request_proxy .
+    methods get_rfc_request_proxy_dbg
+      importing
+        !p_server      type ref to if_http_server
+        !p_destination type rfcdest
+      returning
+        value(result) type ref to lcl_abstract_request_proxy .
+    methods get_rfc_request_proxy_trc
+      importing
+        p_server      type ref to if_http_server
+      returning
+        value(result) type ref to lcl_abstract_request_proxy .
+    methods final_cache_control
+      importing
+        p_server type ref to if_http_server.
+    methods configure_session_state
+      importing
+        p_server type ref to if_http_server.
+    methods remove_alias_from_uri importing p_server       type ref to if_http_server
+                                            p_system_alias type if_gw_service=>gty_system_alias.
+    methods get_debugger_destination
+      importing
+        !p_server     type ref to if_http_server
+      returning
+        value(result) type rfcdest.
+
+ENDCLASS.
+
+
+
+CLASS CL_ADT_WB_RES_APP IMPLEMENTATION.
+
+
+  method check_develop_authorization.
+
+    "Make sure the user has at least DISPLAY authorization
+    g_develop_auth_checker->check( p_uri_string = uri_string ).
+
+  endmethod.
+
+
+  method check_resource_authorization.
+    data uri_string type c length 40.
+
+    uri_string = uri.
+
+    authority-check object 'S_ADT_RES'
+      id 'URI' field uri_string.
+
+    if sy-subrc <> 0.
+      raise exception type cx_adt_res_no_authorization
+        exporting
+          resource_id = conv #( uri_string ).
+    endif.
+
+  endmethod.
+
+
+  method class_constructor.
+    create object g_badi_mode.
+    create object g_develop_auth_checker
+      exporting
+        p_badi_mode = g_badi_mode.
+  endmethod.
+
+
+  method configure_session_state.
+    data(session_type) = p_server->request->get_header_field( cl_adt_wb_res_app=>co_session_type ).
+
+    case session_type.
+      when 'stateful'.
+        p_server->set_session_stateful( stateful = if_http_server=>co_enabled ).
+      when 'stateless'.
+        p_server->set_session_stateful( stateful = if_http_server=>co_disabled ).
+    endcase.
+  endmethod.
+
+
+  method fetch_system_aliases_from_gw.
+    clear e_system_aliases.
+    call function 'SYSTEM_ALIASES_FOR_ADT_SERVICE'
+      exporting
+        i_uname         = i_uname
+      importing
+        et_system_alias = e_system_aliases.
+
+  endmethod.
+
+
+  method final_cache_control.
+    data:
+      method            type string,
+      csrf_token        type string,
+      sap_cache_control type i.
+
+    "No store for csrf token handling and requests which explicitly request no-store
+    method = p_server->request->get_method( ).
+    csrf_token = p_server->request->get_header_field( if_rest_request=>gc_header_csrf_token ).
+    if ( method = 'GET' and csrf_token = 'fetch' )
+      or p_server->request->get_header_field( name = if_http_header_fields=>cache_control ) = 'no-store'. "#EC NOTEXT
+      "No storing
+      p_server->response->delete_header_field( name = if_http_header_fields=>cache_control ).
+      p_server->response->delete_header_field( name = if_http_header_fields=>expires ).
+      p_server->response->set_header_field( exporting name  = if_http_header_fields=>cache_control
+                                                      value = 'no-store' ). "#EC NO_TEXT
+      p_server->response->set_header_field( exporting name  = if_http_header_fields=>pragma
+                                                      value = 'no-cache' ). "#EC NO_TEXT
+      p_server->response->set_header_field( exporting name  = if_http_header_fields=>expires
+                                                      value = '-1' ).
+    endif.
+
+    "The ICM features automatic caching. However, this only works properly if the ADT framework
+    "actively manages the cache e.g. remove invalid cache entries. This is currently not implemented and
+    "needs to be synchronized with the RFC endpoint, too. Therefore, we switch off the ICM cache
+    "management and continue to rely on client caching via conditional GET requests.
+    "-> REST resources can switch on ICM cache handling if they want
+    sap_cache_control = p_server->request->get_header_field( 'sap-cache-control' ).
+    if sap_cache_control is initial.
+      p_server->response->server_cache_expire_rel( expires_rel = 0 ).
+    else.
+      p_server->request->delete_header_field( 'sap-cache-control' ).
+      p_server->response->server_cache_expire_rel( expires_rel = sap_cache_control ).
+    endif.
+  endmethod.
+
+
+  method get_debugger_destination.
+    data servers type standard table of msxxlist with default key.
+
+    data(target_server) = p_server->request->get_header_field( if_adt_header=>co_header_server_instance ).
+    if target_server is not initial and
+       target_server ne cl_abap_syst=>get_instance_name( ).
+      test-seam th_server_list.
+      call function 'TH_SERVER_LIST'
+        exporting
+          active_server  = 0
+        tables
+          list           = servers
+        exceptions
+          no_server_list = 0
+          others         = 0.
+      end-test-seam.
+
+      read table servers transporting no fields with key name = target_server.
+      if sy-subrc = 0. "request will be redirected to other server instance
+        result = target_server.
+      endif.
+    endif.
+  endmethod.
+
+
+  method get_destination.
+    test-seam get_destination.
+      call function 'RFC_DESTINATION_FINDER'
+        exporting
+          i_system_alias    = p_system_alias
+        importing
+          e_rfc_destination = result.
+
+      if result is initial.
+        raise exception type cx_adt_rest_routing.
+      else.
+        if result = co_rfc_destination_none.
+          clear result.
+        endif.
+      endif.
+    end-test-seam.
+  endmethod.
+
+
+  method get_http_request_proxy.
+    if m_injected_proxy_http is bound.
+      result = m_injected_proxy_http.
+    else.
+      create object result type lcl_http_request_proxy
+        exporting
+          p_server = p_server.
+    endif.
+  endmethod.
+
+
+  method get_request_proxy.
+    data:
+      uri          type string,
+      path         type string,
+      system_alias type if_gw_service=>gty_system_alias,
+      destination  type rfcdest.
+
+    system_alias_checkpoint( exporting p_server       = p_server
+               importing p_uri          = uri
+                         p_path         = path
+                         p_system_alias = system_alias ).
+
+    if system_alias is not initial.
+      "All routing requests require s_service authorization
+      service_authority_check( ).
+
+      destination = get_destination( system_alias ).
+      if destination is not initial.
+        result = get_rfc_request_proxy_fes( p_server       = p_server
+                                            p_uri          = uri
+                                            p_path         = path
+                                            p_system_alias = system_alias
+                                            p_destination  = destination ).
+        return.
+      else.
+        remove_alias_from_uri( p_server = p_server p_system_alias = system_alias ).
+      endif.
+    endif.
+
+    " check debugger header
+    destination = get_debugger_destination( p_server ).
+    if destination is not initial.
+      result = get_rfc_request_proxy_dbg( p_server = p_server p_destination = destination ).
+      return.
+    endif.
+
+    if p_server->request->get_header_field( name = co_header_adt_trace ) is not initial.
+      result = get_rfc_request_proxy_trc( p_server ).
+      return.
+    endif.
+
+    result = get_http_request_proxy( p_server ).
+  endmethod.
+
+
+  method get_rfc_request_proxy_dbg.
+    if m_injected_proxy_dbg is bound.
+      result = m_injected_proxy_dbg.
+    else.
+      create object result type lcl_rfc_request_proxy_dbg
+        exporting
+          p_server       = p_server
+          p_destination  = p_destination.
+    endif.
+  endmethod.
+
+
+  method get_rfc_request_proxy_fes.
+    if m_injected_proxy_fes is bound.
+      result = m_injected_proxy_fes.
+    else.
+      create object result type lcl_rfc_request_proxy_fes
+        exporting
+          p_server       = p_server
+          p_uri          = p_uri
+          p_path         = p_path
+          p_system_alias = p_system_alias
+          p_destination  = p_destination.
+    endif.
+  endmethod.
+
+
+  method get_rfc_request_proxy_trc.
+    if m_injected_proxy_trc is bound.
+      result = m_injected_proxy_trc.
+    else.
+      create object result type lcl_rfc_request_proxy_trc
+        exporting
+          p_server       = p_server.
+    endif.
+  endmethod.
+
+
+  method get_system_aliases_configured.
+    clear e_system_aliases.
+    fetch_system_aliases_from_gw( importing e_system_aliases = e_system_aliases ).
+
+  endmethod.
+
+
+  method if_http_extension~handle_request.
+    data:
+      cx_adt        type ref to cx_adt_rest,
+      handler_proxy type ref to lcl_abstract_request_proxy,
+      time_start    type i,
+      time_end      type i.
+
+    get run time field time_start.
+
+    try.
+        handler_proxy = get_request_proxy( p_server = server ).
+
+        " No setting of default content type
+        " Otherwise, in case we do not set a content type, the ICF/ICM would set it to the default value text/html.
+        " suppress_content_type( ) is called also in CL_REST_HTTP_HANDLER, but we also need it for the case were
+        " dispatch the request via SADT_REST_RFC_ENDPOINT, so just always do it globally here.
+        server->response->suppress_content_type( ).
+
+        handler_proxy->set_start_time( time_start ).
+        handler_proxy->handle_request( ).
+
+        "Final cache-control check/setting
+        final_cache_control( p_server = server ).
+
+        configure_session_state( p_server = server ).
+      catch cx_adt_rest into cx_adt.
+        lcl_exception_response=>create( p_server = server
+                                        exc      = cx_adt ).
+    endtry.
+
+    if server->request->get_header_field( name = if_adt_header=>co_header_profiling ) = if_adt_header=>co_header_val_server_time.
+      get run time field time_end.
+      server->response->set_header_field( name = if_adt_header=>co_header_profiling value = |{ if_adt_header=>co_header_val_server_time }={ time_end - time_start }| ).
+    endif.
+  endmethod.
+
+
+  method if_oauth2_consumer~provide_tadir_key_for_request.
+    e_tadir_key-pgmid    = co_oauth2_consumer_tadir-pgmid.
+    e_tadir_key-object   = co_oauth2_consumer_tadir-object.
+    e_tadir_key-obj_name = co_oauth2_consumer_tadir-obj_name.
+  endmethod.
+
+
+  method is_frontend_endpoint.
+    data system_aliases  type if_gw_service=>gty_system_aliases.
+
+    fetch_system_aliases_from_gw( exporting i_uname = space importing e_system_aliases = system_aliases ).
+    if system_aliases is not initial.
+      result = abap_true.
+    endif.
+
+  endmethod.
+
+
+  method remove_alias_from_uri.
+    data: path         type string,
+          uri          type string,
+          alias_string type string.
+
+    path = p_server->request->get_header_field( name = if_http_header_fields_sap=>path ).
+    uri = p_server->request->get_header_field( name = if_http_header_fields_sap=>request_uri ).
+
+    alias_string = |{ co_system_alias_marker }{ p_system_alias-system_alias }|.
+
+    replace alias_string in uri with space.
+    condense uri no-gaps.
+    replace alias_string in path with space.
+    condense path no-gaps.
+
+    p_server->request->set_header_field( name = if_http_header_fields_sap=>path value = path ).
+    p_server->request->set_header_field( name = if_http_header_fields_sap=>request_uri value = uri ).
+  endmethod.
+
+
+  method service_authority_check.
+    test-seam service_authority_check.
+      "Authority check for ADT gateway service R3TR IWSG ADT_0001
+      authority-check object 'S_SERVICE'
+        id 'SRV_NAME'  field '7798C832C6E3A00AEECA353E508524'
+        id 'SRV_TYPE'  field 'HT'.
+      if sy-subrc <> 0.
+        raise exception type cx_adt_rest_routing.
+      endif.
+    end-test-seam.
+  endmethod.
+
+
+  method system_alias_checkpoint.
+    data:
+      adt_alias    type if_gw_service=>gty_system_alias,
+      adt_aliases  type if_gw_service=>gty_system_aliases,
+      alias_string type string.
+
+    clear: p_path, p_system_alias, p_uri.
+    p_path = p_server->request->get_header_field( name = if_http_header_fields_sap=>path ).
+    p_uri = p_server->request->get_header_field( name = if_http_header_fields_sap=>request_uri ).
+
+    "Get all system alias maintained in GW for the ADT service
+    get_system_aliases_configured( importing e_system_aliases = adt_aliases ).
+
+    "Find system alias in the URI
+    find regex |/sap/bc/adt;o=([A-Z_0-9]+)/| in p_uri submatches alias_string.
+
+    if sy-subrc = 0. "Explicit routing request i.e. system alias is provided in the URI
+      p_system_alias = alias_string.
+      "System alias must be maintained in GW for the ADT service
+      read table adt_aliases transporting no fields
+        with key system_alias = p_system_alias.
+      if sy-subrc <> 0.
+        "System alias for ADT service is not maintained in GW
+        raise exception type cx_adt_rest_routing.
+      endif.
+      "Remove the system alias from the request path
+      alias_string = |{ co_system_alias_marker }{ alias_string }|.
+      replace alias_string in p_uri with space.
+      condense p_uri no-gaps.
+      replace alias_string in p_path with space.
+      condense p_path no-gaps.
+
+    else. "Request URI does not contain system alias information
+      if p_uri cs co_system_alias_marker.
+        "poorly formulated ADT request
+        raise exception type cx_adt_rest_routing.
+      endif.
+
+      "No routing OR implicit routing OR GW service configuration error?
+      if lines( adt_aliases ) = 0.
+        "No routing
+        "  i.e. no routing information in URI
+        "  AND no system alias is configured in GW for the ADT service
+        return.
+      else.
+        "Multiple routing targets maintained in GW for the ADT service
+        "  => check if ONE is marked as default
+        "  => otherwise ignore configured routing
+        loop at adt_aliases into adt_alias
+          where is_default = abap_true.
+          if p_system_alias is initial.
+            p_system_alias = adt_alias-system_alias.
+          else.
+            clear p_system_alias.
+            exit.
+          endif.
+        endloop.
+      endif.
+
+    endif.
+  endmethod.
+ENDCLASS.
